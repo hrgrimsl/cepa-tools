@@ -56,10 +56,7 @@ class molecule:
             print("CCSD(T) energy:".ljust(30)+("{0:20.16f}".format(psi4.energy('ccsd(t)'))))   
         if self.lccd == True:
             print("LCCD energy:".ljust(30)+("{0:20.16f}".format(psi4.energy('lccd'))))   
-        if self.acpf == True:
-            print("ACPF energy:".ljust(30)+("{0:20.16f}".format(psi4.energy('acpf'))))   
-        if self.aqcc == True:
-            print("AQCC energy:".ljust(30)+("{0:20.16f}".format(psi4.energy('aqcc'))))   
+
 
         mints = psi4.core.MintsHelper(wfn.basisset())
         ca = wfn.Ca()
@@ -98,6 +95,19 @@ class molecule:
         if self.cepa0 == True:
             cepa = self.cepa()
             print("CEPA(0) energy:".ljust(30)+("{0:20.16f}".format(cepa)))   
+        if self.acpf == True:
+            self.s2_term = False
+            self.shift = 'acpf'            
+            acpf = self.shifted_cepa()
+            print("ACPF energy:".ljust(30)+("{0:20.16f}".format(acpf)))   
+
+             
+        if self.aqcc == True:
+            self.s2_term = False
+            self.shift = 'aqcc'            
+            aqcc = self.shifted_cepa()
+            print("AQCC energy:".ljust(30)+("{0:20.16f}".format(aqcc)))   
+
         if self.shucc == True:
             self.lam = 1
             c3epa = self.c3epa()
