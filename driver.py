@@ -18,6 +18,14 @@ class molecule:
         self.ccsdpt = False
         self.cepa0 = False
         self.shucc = False
+        self.lam_cepa = None
+        self.lccd = False
+        self.acpf = False
+        self.uacpf = False
+        self.aqcc = False
+        self.uaqcc = False
+        self.run_ic3epa = False
+        self.tol = 1e-12
         for key, value in kwargs.items():
             setattr(self, key, value)
         try:
@@ -46,7 +54,13 @@ class molecule:
             print("CCSD energy:".ljust(30)+("{0:20.16f}".format(psi4.energy('mp2'))))   
         if self.ccsdpt == True:
             print("CCSD(T) energy:".ljust(30)+("{0:20.16f}".format(psi4.energy('ccsd(t)'))))   
-        
+        if self.lccd == True:
+            print("LCCD energy:".ljust(30)+("{0:20.16f}".format(psi4.energy('lccd'))))   
+        if self.acpf == True:
+            print("ACPF energy:".ljust(30)+("{0:20.16f}".format(psi4.energy('acpf'))))   
+        if self.aqcc == True:
+            print("AQCC energy:".ljust(30)+("{0:20.16f}".format(psi4.energy('aqcc'))))   
+
         mints = psi4.core.MintsHelper(wfn.basisset())
         ca = wfn.Ca()
         cb = wfn.Cb()
@@ -88,13 +102,32 @@ class molecule:
             self.lam = 1
             c3epa = self.c3epa()
             print("SHUCC energy:".ljust(30)+("{0:20.16f}".format(c3epa)))   
-         
+        if self.lam_cepa != None:
+            self.lam = self.lam_cepa
+            c3epa = self.c3epa()
+            print("λ-C3EPA energy:".ljust(30)+("{0:20.16f}".format(c3epa)))   
+        if self.run_ic3epa == True:
+            self.lam = 0
+            c3epa = self.ic3epa()
+            print("IC3EPA energy:".ljust(30)+("{0:20.16f}".format(c3epa)))   
+        if self.uacpf == True:
+            self.s2_term = True
+            self.shift = 'acpf'            
+            uacpf = self.shifted_cepa()
+            print("UACPF energy:".ljust(30)+("{0:20.16f}".format(uacpf)))   
+        if self.uaqcc == True:
+            self.s2_term = True
+            self.shift = 'aqcc'            
+            uaqcc = self.shifted_cepa()
+            print("UAQCC energy:".ljust(30)+("{0:20.16f}".format(uaqcc)))   
+
+
     def cepa(self):
         b = self.cepa_b()
         b = at.collapse_tensor(b, self)
         b = at.concatenate_amps(b, self)
         Aop = scipy.sparse.linalg.LinearOperator((len(b), len(b)), matvec = self.cepa_A, rmatvec = self.cepa_A)
-        x, info = np.array(scipy.sparse.linalg.cg(Aop, -b, tol = 1e-12))
+        x, info = np.array(scipy.sparse.linalg.cg(Aop, -b, tol = self.tol))
         if self.reference == 'rhf':
             Ax = at.rhf_to_uhf(self.cepa_A(x), self)
             b = at.rhf_to_uhf(b, self)
@@ -104,12 +137,38 @@ class molecule:
             energy = self.hf_energy + 2*x.T.dot(b) + x.T.dot(self.cepa_A(x)) 
         return energy
 
+    def shifted_cepa(self):
+        b = self.cepa_b()
+        b = at.collapse_tensor(b, self)
+        b = at.concatenate_amps(b, self)
+        norm = 1
+        old = b*0
+        self.Ec = 0
+        x0 = 0*b
+        while abs(norm)>1e-14:
+             
+            Aop = scipy.sparse.linalg.LinearOperator((len(b), len(b)), matvec = self.shifted_A, rmatvec = self.shifted_A,)
+            x, info = np.array(scipy.sparse.linalg.cg(Aop, -b, x0 = x0, tol = self.tol))
+            norm = (old-x).dot(old-x)
+            old = copy.copy(x)
+            x0 = x
+            if self.reference == 'rhf':
+                Ax2 = at.rhf_to_uhf(self.shifted_A(x), self)
+                b2 = at.rhf_to_uhf(b, self)
+                x2 = at.rhf_to_uhf(x, self)
+                energy = self.hf_energy + 2*x2.T.dot(b2) + x2.T.dot(Ax2)
+            else:   
+                energy = self.hf_energy + 2*x.T.dot(b) + x.T.dot(self.shifted_A(x))        
+            self.Ec = energy-self.hf_energy
+        return energy
+
     def c3epa(self, **kwargs):
         b = self.cepa_b()
         b = at.collapse_tensor(b, self)
         b = at.concatenate_amps(b, self)
         Aop = scipy.sparse.linalg.LinearOperator((len(b), len(b)), matvec = self.c3epa_A, rmatvec = self.c3epa_A)
-        x, info = np.array(scipy.sparse.linalg.cg(Aop, -b, tol = 1e-8))
+        x, info = np.array(scipy.sparse.linalg.cg(Aop, -b, tol = self.tol))
+        #x = self.cg_shucc(-b)
         if self.reference == 'rhf':
             Ax = at.rhf_to_uhf(self.c3epa_A(x), self)
             b = at.rhf_to_uhf(b, self)
@@ -119,6 +178,30 @@ class molecule:
             energy = self.hf_energy + 2*x.T.dot(b) + x.T.dot(self.c3epa_A(x)) 
         return energy
     
+    def ic3epa(self, **kwargs):
+        b = self.cepa_b()
+        b = at.collapse_tensor(b, self)
+        b = at.concatenate_amps(b, self)
+        oldguess = np.zeros(len(b))
+        norm = 1
+        self.lam = 0
+        self.x = 0*b
+        while abs(norm) > 1e-12:
+            Aop = scipy.sparse.linalg.LinearOperator((len(b), len(b)), matvec = self.ic3epa_A, rmatvec = self.ic3epa_A)
+            x, info = np.array(scipy.sparse.linalg.cg(Aop, -b, x0 = self.x, tol = self.tol))
+            self.ic3epa_energy(x)
+            norm = (oldguess - x).dot(oldguess - x)
+            oldguess = copy.copy(x)
+            self.lam = .5*x.dot(x)
+
+        if self.reference == 'rhf':
+            Ax = at.rhf_to_uhf(self.ic3epa_A(x), self)
+            b = at.rhf_to_uhf(b, self)
+            x = at.rhf_to_uhf(x, self)
+            energy = self.hf_energy + 2*x.T.dot(b) + x.T.dot(Ax)
+        else:   
+            energy = self.hf_energy + 2*x.T.dot(b) + x.T.dot(self.ic3epa_A(x)) 
+        return energy
 
     def cepa_A(self, x):
         if self.reference == 'rhf':
@@ -249,10 +332,20 @@ class molecule:
         Ax = at.collapse_tensor(Ax, self)
         Ax = at.concatenate_amps(Ax, self)
         return Ax
-
-
-
-    
+ 
+    def shifted_A(self, x):
+        N = self.noa + self.nob
+        if self.shift == 'acpf':
+            shift = 2*self.Ec/N
+        elif self.shift == 'aqcc':
+            shift = (1-(N-3)*(N-2)/(N*(N-1)))*self.Ec          
+        if self.s2_term == True:
+            self.lam = 1
+            Ax0 = self.c3epa_A(x)        
+        elif self.s2_term == False:
+            Ax0 = self.cepa_A(x)
+        return Ax0 - shift*x 
+ 
     def c3epa_A(self, x):
         A0 = self.cepa_A(x)
         if self.reference == 'rhf':
@@ -272,13 +365,73 @@ class molecule:
         Ax['a'] += contract('ijab,jb->ia', self.j_abab[:self.noa, :self.nob, self.noa:, self.nob:], x['b'])
         if self.reference != 'rhf':
             Ax['b'] += contract('ijab,jb->ia', self.l_bbbb[:self.nob, :self.nob, self.nob:, self.nob:], x['b'])
-            Ax['a'] += contract('jiba,jb->ia', self.j_abab[:self.noa, :self.nob, self.noa:, self.nob:], x['b'])
+            Ax['b'] += contract('jiba,jb->ia', self.j_abab[:self.noa, :self.nob, self.noa:, self.nob:], x['a'])
         if self.reference == 'rhf':
             Ax['b'] = Ax['a'] 
         
         Ax = at.collapse_tensor(Ax, self)
         Ax = at.concatenate_amps(Ax, self)
         return (self.lam*Ax)+A0
+
+    def A2(self, x):
+        if self.reference == 'rhf':
+            x = at.rhf_to_uhf(x, self)
+        x = at.decatenate_amps(x, self, reference = 'uhf')
+        x = at.expand_vector(x, self, reference = 'uhf')
+
+        #Initialize Hessian Shapes
+        Ax = {} 
+        Ax['a'] = np.zeros((self.noa, self.nva))
+        Ax['b'] = np.zeros((self.nob, self.nvb))
+        Ax['aa'] = np.zeros((self.noa, self.noa, self.nva, self.nva))
+        Ax['ab'] = np.zeros((self.noa, self.nob, self.nva, self.nvb))
+        Ax['bb'] = np.zeros((self.nob, self.nob, self.nvb, self.nvb))
+        
+        Ax['a'] += contract('ijab,jb->ia', self.l_aaaa[:self.noa, :self.noa, self.noa:, self.noa:], x['a'])
+        Ax['a'] += contract('ijab,jb->ia', self.j_abab[:self.noa, :self.nob, self.noa:, self.nob:], x['b'])
+        if self.reference != 'rhf':
+            Ax['b'] += contract('ijab,jb->ia', self.l_bbbb[:self.nob, :self.nob, self.nob:, self.nob:], x['b'])
+            Ax['b'] += contract('jiba,jb->ia', self.j_abab[:self.noa, :self.nob, self.noa:, self.nob:], x['a'])
+        if self.reference == 'rhf':
+            Ax['b'] = Ax['a'] 
+        
+        Ax = at.collapse_tensor(Ax, self)
+        Ax = at.concatenate_amps(Ax, self)
+        return Ax
+
+
+    def ic3epa_A(self, x):
+        term1 = self.cepa_A(x)
+        term3 = self.x.T.dot(self.A2(self.x))*x
+
+        if self.reference == 'rhf':
+            x = at.rhf_to_uhf(x, self)
+        x = at.decatenate_amps(x, self, reference = 'uhf')
+        x = at.expand_vector(x, self, reference = 'uhf')
+
+        #Initialize Hessian Shapes
+        Ax = {} 
+        Ax['a'] = np.zeros((self.noa, self.nva))
+        Ax['b'] = np.zeros((self.nob, self.nvb))
+        Ax['aa'] = np.zeros((self.noa, self.noa, self.nva, self.nva))
+        Ax['ab'] = np.zeros((self.noa, self.nob, self.nva, self.nvb))
+        Ax['bb'] = np.zeros((self.nob, self.nob, self.nvb, self.nvb))
+        
+        Ax['a'] += contract('ijab,jb->ia', self.l_aaaa[:self.noa, :self.noa, self.noa:, self.noa:], x['a'])
+        Ax['a'] += contract('ijab,jb->ia', self.j_abab[:self.noa, :self.nob, self.noa:, self.nob:], x['b'])
+        if self.reference != 'rhf':
+            Ax['b'] += contract('ijab,jb->ia', self.l_bbbb[:self.nob, :self.nob, self.nob:, self.nob:], x['b'])
+            Ax['b'] += contract('jiba,jb->ia', self.j_abab[:self.noa, :self.nob, self.noa:, self.nob:], x['a'])
+        if self.reference == 'rhf':
+            Ax['b'] = Ax['a'] 
+        
+        Ax = at.collapse_tensor(Ax, self)
+        Ax = at.concatenate_amps(Ax, self)
+        return term1+term3+2*self.lam*Ax
+
+
+
+
 
     def cepa_b(self):
         grad = {} 
@@ -304,4 +457,50 @@ class molecule:
         print(energy)
         return energy
         
+    def shifted_energy(self, x):
+        b = self.cepa_b()
+        b = at.collapse_tensor(b, self)
+        b = at.concatenate_amps(b, self)
+        energy = self.hf_energy + 2* x.T.dot(b) + x.T.dot(self.shifted_A(x))
+        if self.reference == 'rhf':
+            Ax = at.rhf_to_uhf(self.shifted_A(x), self)
+            b = at.rhf_to_uhf(b, self)
+            x = at.rhf_to_uhf(x, self)
+            energy = self.hf_energy + 2*x.T.dot(b) + x.T.dot(Ax)
+        else:   
+            energy = self.hf_energy + 2*x.T.dot(b) + x.T.dot(self.shifted_A(x))
+        print(energy)
+        return energy
+    
+    def ic3epa_energy(self, x):
+        b = self.cepa_b()
+        b = at.collapse_tensor(b, self)
+        b = at.concatenate_amps(b, self)
+        energy = self.hf_energy + 2* x.T.dot(b) + x.T.dot(self.ic3epa_A(x))
+        if self.reference == 'rhf':
+            Ax = at.rhf_to_uhf(self.ic3epa_A(x), self)
+            b = at.rhf_to_uhf(b, self)
+            x = at.rhf_to_uhf(x, self)
+            energy = self.hf_energy + 2*x.T.dot(b) + x.T.dot(Ax)
+        else:
+            energy = self.hf_energy + 2*x.T.dot(b) + x.T.dot(self.ic3epa_A(x))
+        print(energy)
+        return energy
 
+    def cg_shucc(self, b):
+        x = 0*b
+        r = b
+        p = copy.copy(r)
+        self.lam = 1
+        while 1 == 1:
+            Ap = self.c3epa_A(p)
+            alpha = r.T.dot(r)/p.T.dot(Ap)
+            x = x + alpha*p
+            r2 = r - alpha*Ap
+            if np.linalg.norm(r) <= 1e-7:
+                break
+            beta = r2.T.dot(r2)/(r.T.dot(r))
+            r = r2
+            p = r + beta*p
+
+        return x 
