@@ -25,7 +25,10 @@ class molecule:
         self.aqcc = False
         self.uaqcc = False
         self.run_ic3epa = False
+        self.sys_name = None
         self.tol = 1e-12
+        self.log_file = 'out.dat'
+        self.mem = '8GB'
         for key, value in kwargs.items():
             setattr(self, key, value)
         try:
@@ -34,17 +37,32 @@ class molecule:
             print("Only \"rhf\" or \"uhf\" allowed.")
             exit()
         self.reference = reference
+        print(self.sys_name)
 
         psi4.geometry(geometry)
         psi4.core.be_quiet()
+        if os.path.exists(self.log_file):
+            cha = 'a'
+        else:
+            cha = 'w'
+        log = open(self.log_file, cha)
+        log.write(self.sys_name)  
 
-        psi4.set_memory('8GB')
+        psi4.set_memory(self.mem)
         if self.optimize == True:
             psi4.set_options({'reference': self.reference, 'scf_type': 'pk', 'g_convergence': 'GAU_TIGHT', 'd_convergence': 1e-12})
-            psi4.set_options({'opt_coordinates': 'both', 'geom_maxiter': 300})
-            psi4.optimize('b3lyp/6-311G(d,p)')
- 
+            try:
+                psi4.set_options({'opt_coordinates': 'cartesian', 'geom_maxiter': 300})
+                E, wfnopt = psi4.optimize('b3lyp/6-311G(d,p)', return_wfn = True)
+            except:
+                psi4.set_options({'opt_coordinates': 'both', 'geom_maxiter': 300})
+                E, wfnopt = psi4.optimize('b3lyp/6-311G(d,p)', return_wfn = True)
+
+
+            log.write((wfnopt.molecule().create_psi4_string_from_molecule()))
+
         psi4.set_options({'reference': reference, 'basis': basis, 'd_convergence': 1e-12, 'scf_type': 'pk'})
+
         self.hf_energy, wfn = psi4.energy('scf', return_wfn = True)
         if self.scf == True:
             print("HF energy:".ljust(30)+("{0:20.16f}".format(self.hf_energy))) 
@@ -56,6 +74,7 @@ class molecule:
             print("CCSD(T) energy:".ljust(30)+("{0:20.16f}".format(psi4.energy('ccsd(t)'))))   
         if self.lccd == True:
             print("LCCD energy:".ljust(30)+("{0:20.16f}".format(psi4.energy('lccd'))))   
+
 
 
         mints = psi4.core.MintsHelper(wfn.basisset())
@@ -95,13 +114,13 @@ class molecule:
         if self.cepa0 == True:
             cepa = self.cepa()
             print("CEPA(0) energy:".ljust(30)+("{0:20.16f}".format(cepa)))   
+
         if self.acpf == True:
             self.s2_term = False
             self.shift = 'acpf'            
             acpf = self.shifted_cepa()
             print("ACPF energy:".ljust(30)+("{0:20.16f}".format(acpf)))   
 
-             
         if self.aqcc == True:
             self.s2_term = False
             self.shift = 'aqcc'            
@@ -155,8 +174,7 @@ class molecule:
         old = b*0
         self.Ec = 0
         x0 = 0*b
-        while abs(norm)>1e-14:
-             
+        while abs(norm)>1e-14:         
             Aop = scipy.sparse.linalg.LinearOperator((len(b), len(b)), matvec = self.shifted_A, rmatvec = self.shifted_A,)
             x, info = np.array(scipy.sparse.linalg.cg(Aop, -b, x0 = x0, tol = self.tol))
             norm = (old-x).dot(old-x)
@@ -178,7 +196,6 @@ class molecule:
         b = at.concatenate_amps(b, self)
         Aop = scipy.sparse.linalg.LinearOperator((len(b), len(b)), matvec = self.c3epa_A, rmatvec = self.c3epa_A)
         x, info = np.array(scipy.sparse.linalg.cg(Aop, -b, tol = self.tol))
-        #x = self.cg_shucc(-b)
         if self.reference == 'rhf':
             Ax = at.rhf_to_uhf(self.c3epa_A(x), self)
             b = at.rhf_to_uhf(b, self)
@@ -464,7 +481,6 @@ class molecule:
             energy = self.hf_energy + 2*x.T.dot(b) + x.T.dot(Ax)
         else:   
             energy = self.hf_energy + 2*x.T.dot(b) + x.T.dot(self.cepa_A(x))
-        print(energy)
         return energy
         
     def shifted_energy(self, x):
@@ -479,7 +495,6 @@ class molecule:
             energy = self.hf_energy + 2*x.T.dot(b) + x.T.dot(Ax)
         else:   
             energy = self.hf_energy + 2*x.T.dot(b) + x.T.dot(self.shifted_A(x))
-        print(energy)
         return energy
     
     def ic3epa_energy(self, x):
@@ -494,7 +509,7 @@ class molecule:
             energy = self.hf_energy + 2*x.T.dot(b) + x.T.dot(Ax)
         else:
             energy = self.hf_energy + 2*x.T.dot(b) + x.T.dot(self.ic3epa_A(x))
-        print(energy)
+
         return energy
 
     def cg_shucc(self, b):
