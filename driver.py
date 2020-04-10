@@ -53,16 +53,15 @@ class molecule:
             psi4.set_options({'reference': self.reference, 'scf_type': 'pk', 'g_convergence': 'GAU_TIGHT', 'd_convergence': 1e-12})
 
             psi4.set_options({'opt_coordinates': self.optimize, 'geom_maxiter': 300})
-            E, wfnopt = psi4.optimize('b3lyp/6-31G*', return_wfn = True)
+            E, wfnopt = psi4.optimize('scf/6-31G*', return_wfn = True)
             E, wfnopt = psi4.optimize('b3lyp/6-311G(d,p)', return_wfn = True)
             log.write((wfnopt.molecule().create_psi4_string_from_molecule()))
 
-        psi4.set_options({'reference': reference, 'basis': basis, 'd_convergence': 1e-12, 'scf_type': 'pk'})
+        psi4.set_options({'reference': reference, 'basis': basis, 'd_convergence': 1e-14, 'scf_type': 'pk', 'r_convergence': 1e-10, 'maxiter': 100, 'cc_type': 'conv'})
 
         self.hf_energy, wfn = psi4.energy('scf', return_wfn = True)
         if self.scf == True:
             print("HF energy:".ljust(30)+("{0:20.16f}".format(self.hf_energy)))
-        psi4.core.clean() 
         if self.mp2 == True:
             print("MP2 energy:".ljust(30)+("{0:20.16f}".format(psi4.energy('mp2'))))   
         if self.ccsd == True:
@@ -167,16 +166,18 @@ class molecule:
         b = at.collapse_tensor(b, self)
         b = at.concatenate_amps(b, self)
         Aop = scipy.sparse.linalg.LinearOperator((len(b), len(b)), matvec = self.cepa_A, rmatvec = self.cepa_A)
-
+        #print(scipy.sparse.linalg.eigsh(Aop, k = 3)[0])
+        #print(scipy.sparse.linalg.svds(Aop, k = 3)[1])
 
         A = self.build_hessian()
-        print(np.linalg.norm(A-A.T))
+
         #x, y = np.linalg.eig(A)
         #s, v, d = np.linalg.svd(A)
         #print(sorted(x))
         #print(sorted(v))
         
-        x, info = np.array(scipy.sparse.linalg.cg(Aop, -b, tol = self.tol))
+        x, info = scipy.sparse.linalg.cg(Aop, -b, tol = self.tol)
+
         if self.reference == 'rhf':
             Ax = at.rhf_to_uhf(self.cepa_A(x), self)
             b = at.rhf_to_uhf(b, self)
@@ -271,6 +272,7 @@ class molecule:
         if self.reference != 'rhf':
             Ax['b'] += contract('ab,ib->ia', self.fb[self.nob:, self.nob:], x['b'])
        
+
         #S->S F (Hole Interaction)
         Ax['a'] -= contract('ji,ja->ia', self.fa[:self.noa, :self.noa], x['a'])
         if self.reference != 'rhf':
@@ -314,10 +316,10 @@ class molecule:
         Ax['a'] += .5*contract('ajcb,ijcb->ia', self.l_aaaa[self.noa:, :self.noa, self.noa:, self.noa:], x['aa'])
         Ax['a'] += contract('ajcb,ijcb->ia', self.j_abab[self.noa:, :self.nob, self.noa:, self.nob:], x['ab'])
         if self.reference != 'rhf':
-            Ax['b'] += .5*contract('jabc,jibc->ia', self.l_bbbb[:self.nob, self.nob:, self.nob:, self.nob:], x['bb'])
+            Ax['b'] += .5*contract('ajcb,ijcb->ia', self.l_bbbb[self.nob:, :self.nob, self.nob:, self.nob:], x['bb'])
             Ax['b'] += contract('jabc,jibc->ia', self.j_abab[:self.noa, self.nob:, self.noa:, self.nob:], x['ab'])
 
-
+ 
         #D->D F (Hole Interaction)
         Ax['aa'] -= (contract('kj,ikab->ijab', self.fa[:self.noa, :self.noa], x['aa']))
         Ax['aa'] += (contract('ki,jkab->ijab', self.fa[:self.noa, :self.noa], x['aa']))
@@ -364,12 +366,12 @@ class molecule:
         Ax['aa'] += contract('akic,jkbc->ijab', self.j_abab[self.noa:, :self.nob, :self.noa, self.nob:], x['ab'])
         Ax['aa'] -= contract('bkic,jkac->ijab', self.j_abab[self.noa:, :self.nob, :self.noa, self.nob:], x['ab'])
 
+        Ax['ab'] -= contract('akcj,ikcb->ijab', self.j_abab[self.noa:, :self.nob, self.noa:, :self.nob], x['ab'])
+        Ax['ab'] -= contract('kbcj,ikca->ijab', self.j_abab[:self.noa, self.nob:, self.noa:, :self.nob], x['aa'])
+        Ax['ab'] += contract('akic,kjcb->ijab', self.j_abab[self.noa:, :self.nob, :self.noa, self.nob:], x['bb'])
         Ax['ab'] -= contract('kbic,kjac->ijab', self.j_abab[:self.noa, self.nob:, :self.noa, self.nob:], x['ab'])
-        Ax['ab'] -= contract('akcj,ikcb->ijab', self.j_abab[self.noa:, :self.nob, self.noa:, :self.nob], x['ab'])    
-        Ax['ab'] -= contract('kaic,kjcb->ijab', self.l_aaaa[:self.noa, self.noa:, :self.noa, self.noa:], x['ab'])
-        Ax['ab'] -= contract('kbjc,ikac->ijab', self.l_bbbb[:self.nob, self.nob:, :self.nob, self.nob:], x['ab'])
-        Ax['ab'] -= contract('kbcj,kiac->ijab', self.j_abab[:self.noa, self.nob:, self.noa:, :self.nob], x['aa'])
-        Ax['ab'] -= contract('akic,kjbc->ijab', self.j_abab[self.noa:, :self.nob, :self.noa, self.nob:], x['bb'])
+        Ax['ab'] += contract('kbcj,ikac->ijab', self.l_bbbb[:self.nob, self.nob:, self.nob:, :self.nob], x['ab'])
+        Ax['ab'] -= contract('akci,kjcb->ijab', self.l_aaaa[self.noa:, :self.noa, self.noa:, :self.noa], x['ab'])
 
         if self.reference != 'rhf': 
             Ax['bb'] -= contract('akcj,ikcb->ijab', self.l_bbbb[self.nob:, :self.nob, self.nob:, :self.nob], x['bb'])
@@ -385,6 +387,7 @@ class molecule:
 
         Ax = at.collapse_tensor(Ax, self)
         Ax = at.concatenate_amps(Ax, self)
+
         return Ax
  
     def shifted_A(self, x):
@@ -448,7 +451,7 @@ class molecule:
             Ax['b'] += contract('jiba,jb->ia', self.j_abab[:self.noa, :self.nob, self.noa:, self.nob:], x['a'])
         if self.reference == 'rhf':
             Ax['b'] = Ax['a'] 
-        
+         
         Ax = at.collapse_tensor(Ax, self)
         Ax = at.concatenate_amps(Ax, self)
         return Ax
@@ -588,10 +591,30 @@ class molecule:
 
     def build_hessian(self):
         hessian = np.zeros((len(self.b), len(self.b)))
-        for i in range(0, len(self.b)):
-            x = np.zeros(len(self.b))
-            x[i] = 1.0
-            hessian[:][i] = self.cepa_A(x)
+        if self.reference != 'rhf':
+            for i in range(0, len(self.b)):
+                x = np.zeros(len(self.b))
+                x[i] = 1.0
+                hessian[:,i] = self.cepa_A(x)
+        else:
+            nsym = self.noa*self.nva+int(.25*self.noa*(self.noa-1)*self.nva*(self.nva-1))
+
+            for i in range(0, 6):
+                x = np.zeros(len(self.b))
+                x[i] = 1
+                #if i<nsym:
+                #    x *= np.sqrt(2)
+                ax = self.cepa_A(x)
+
+                #for j in range(0, len(ax)):
+                #    if j<nsym and i>=nsym:
+                #        ax[j] *= np.sqrt(2)
+                hessian[:,i] = ax
+        print(str(hessian).replace('\n', ''))
+        tmp = at.decatenate_amps(hessian[:,0], self)
+
+        #print(np.linalg.norm(hessian - hessian.T))
+        exit()
         return hessian
  
     def cg_shucc(self, b):
