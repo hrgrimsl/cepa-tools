@@ -152,11 +152,8 @@ class molecule:
             b = at.collapse_tensor(b, self)
             b = at.concatenate_amps(b, self)
             x = 0*b
-            self.lam = 0
-
-            res = scipy.optimize.minimize(self.cepa_energy, x, method = 'bfgs', options = {'gtol': 1e-10})
-            print("Variational energy:".ljust(30)+("{0:20.16f}".format(self.cepa_energy(res.x))))  
-            y = at.decatenate_amps(res.x, self)
+            res = scipy.optimize.minimize(self.bfgs_ic3epa_energy, x, method = 'bfgs', options = {'gtol': 1e-10})
+            print("Variational IC3EPA energy:".ljust(30)+("{0:20.16f}".format(self.bfgs_ic3epa_energy(res.x))))
 
 
 
@@ -169,7 +166,7 @@ class molecule:
         #print(scipy.sparse.linalg.eigsh(Aop, k = 3)[0])
         #print(scipy.sparse.linalg.svds(Aop, k = 3)[1])
 
-        A = self.build_hessian()
+        #A = self.build_hessian()
 
         #x, y = np.linalg.eig(A)
         #s, v, d = np.linalg.svd(A)
@@ -196,9 +193,9 @@ class molecule:
         self.Ec = 0
         x0 = 0*b
         while abs(norm)>1e-14:         
-            Aop = scipy.sparse.linalg.LinearOperator((len(b), len(b)), matvec = self.shifted_A, rmatvec = self.shifted_A,)
-            x, info = np.array(scipy.sparse.linalg.cg(Aop, -b, x0 = x0, tol = self.tol))
-
+            Aop = scipy.sparse.linalg.LinearOperator((len(b), len(b)), matvec = self.shifted_A, rmatvec = self.shifted_A)
+            x, info = scipy.sparse.linalg.cg(Aop, -b, tol = self.tol)
+        
             norm = (old-x).dot(old-x)
             old = copy.copy(x)
             x0 = x
@@ -234,23 +231,23 @@ class molecule:
         oldguess = np.zeros(len(b))
         norm = 1
         self.x = 0*b
-        self.lam = .5*self.x.T.dot(self.x)
         while abs(norm) > 1e-14:
             Aop = scipy.sparse.linalg.LinearOperator((len(b), len(b)), matvec = self.ic3epa_A, rmatvec = self.ic3epa_A)
             x, info = np.array(scipy.sparse.linalg.cg(Aop, -b, x0 = self.x, tol = self.tol))
-            self.ic3epa_energy(x)
             norm = (oldguess - x).dot(oldguess - x)
             oldguess = copy.copy(x)
             self.lam = .5*x.T.dot(x)
             self.x = copy.copy(x)
 
         if self.reference == 'rhf':
-            Ax = at.rhf_to_uhf(self.ic3epa_A(x), self)
-            b = at.rhf_to_uhf(b, self)
-            x = at.rhf_to_uhf(x, self)
-            energy = self.hf_energy + 2*x.T.dot(b) + x.T.dot(Ax)
+            #Ax = at.rhf_to_uhf(self.c3epa_A(x), self)
+            #b = at.rhf_to_uhf(b, self)
+            #x = at.rhf_to_uhf(x, self)
+            energy = self.c3epa_energy(x)
         else:   
-            energy = self.hf_energy + 2*x.T.dot(b) + x.T.dot(self.ic3epa_A(x)) 
+            #energy = self.hf_energy + 2*x.T.dot(b) + x.T.dot(self.c3epa_A(x)) 
+            energy = self.c3epa_energy(x)
+
         return energy
 
     def cepa_A(self, x):
@@ -303,24 +300,49 @@ class molecule:
             Ax['bb'] += contract('abcj,ic->ijab', self.l_bbbb[self.nob:, self.nob:, self.nob:, :self.nob], x['b'])
             Ax['bb'] -= contract('abci,jc->ijab', self.l_bbbb[self.nob:, self.nob:, self.nob:, :self.nob], x['b'])
 
-
+        
         #D->S V (Hole Interaction)
+        rt2 = np.sqrt(2)
+        '''
         Ax['a'] -= .5*contract('kjib,kjab->ia', self.l_aaaa[:self.noa, :self.noa, :self.noa, self.noa:], x['aa']) 
         Ax['a'] -= contract('kjib,kjab->ia', self.j_abab[:self.noa, :self.nob, :self.noa, self.nob:], x['ab'])
         if self.reference != 'rhf':
             Ax['b'] -= .5*contract('kjib,kjab->ia', self.l_bbbb[:self.nob, :self.nob, :self.nob, self.nob:], x['bb'])
             Ax['b'] -= contract('jkbi,jkba->ia', self.j_abab[:self.noa, :self.nob, self.noa:, :self.nob], x['ab'])
-
-
+        '''
+        if self.reference != 'rhf':
+            Ax['a'] -= .5*contract('kjib,kjab->ia', self.l_aaaa[:self.noa, :self.noa, :self.noa, self.noa:], x['aa']) 
+            Ax['a'] -= contract('kjib,kjab->ia', self.j_abab[:self.noa, :self.nob, :self.noa, self.nob:], x['ab'])
+            Ax['b'] -= .5*contract('kjib,kjab->ia', self.l_bbbb[:self.nob, :self.nob, :self.nob, self.nob:], x['bb'])
+            Ax['b'] -= contract('jkbi,jkba->ia', self.j_abab[:self.noa, :self.nob, self.noa:, :self.nob], x['ab'])
+        else:
+            Ax['a'] -= 1/2 * .5*contract('kjib,kjab->ia', self.l_aaaa[:self.noa, :self.noa, :self.noa, self.noa:], x['aa']) 
+            Ax['a'] -= 1/2 * contract('kjib,kjab->ia', self.j_abab[:self.noa, :self.nob, :self.noa, self.nob:], x['ab'])
+            Ax['a'] -= 1/2 * .5*contract('kjib,kjab->ia', self.l_bbbb[:self.nob, :self.nob, :self.nob, self.nob:], x['bb'])
+            Ax['a'] -= 1/2 * contract('jkbi,jkba->ia', self.j_abab[:self.noa, :self.nob, self.noa:, :self.nob], x['ab'])
+ 
         #D->S V (Particle Interaction)
+        '''
         Ax['a'] += .5*contract('ajcb,ijcb->ia', self.l_aaaa[self.noa:, :self.noa, self.noa:, self.noa:], x['aa'])
         Ax['a'] += contract('ajcb,ijcb->ia', self.j_abab[self.noa:, :self.nob, self.noa:, self.nob:], x['ab'])
         if self.reference != 'rhf':
             Ax['b'] += .5*contract('ajcb,ijcb->ia', self.l_bbbb[self.nob:, :self.nob, self.nob:, self.nob:], x['bb'])
             Ax['b'] += contract('jabc,jibc->ia', self.j_abab[:self.noa, self.nob:, self.noa:, self.nob:], x['ab'])
-
+        '''
+        if self.reference != 'rhf':
+            Ax['a'] += .5*contract('ajcb,ijcb->ia', self.l_aaaa[self.noa:, :self.noa, self.noa:, self.noa:], x['aa'])
+            Ax['a'] += contract('ajcb,ijcb->ia', self.j_abab[self.noa:, :self.nob, self.noa:, self.nob:], x['ab'])
+            Ax['b'] += .5*contract('ajcb,ijcb->ia', self.l_bbbb[self.nob:, :self.nob, self.nob:, self.nob:], x['bb'])
+            Ax['b'] += contract('jabc,jibc->ia', self.j_abab[:self.noa, self.nob:, self.noa:, self.nob:], x['ab'])
+        else:
+            Ax['a'] += 1/2 * .5*contract('ajcb,ijcb->ia', self.l_aaaa[self.noa:, :self.noa, self.noa:, self.noa:], x['aa'])
+            Ax['a'] += 1/2 * contract('ajcb,ijcb->ia', self.j_abab[self.noa:, :self.nob, self.noa:, self.nob:], x['ab'])
+            Ax['a'] += 1/2 * .5*contract('ajcb,ijcb->ia', self.l_bbbb[self.nob:, :self.nob, self.nob:, self.nob:], x['bb'])
+            Ax['a'] += 1/2 * contract('jabc,jibc->ia', self.j_abab[:self.noa, self.nob:, self.noa:, self.nob:], x['ab'])
+            
  
         #D->D F (Hole Interaction)
+        '''
         Ax['aa'] -= (contract('kj,ikab->ijab', self.fa[:self.noa, :self.noa], x['aa']))
         Ax['aa'] += (contract('ki,jkab->ijab', self.fa[:self.noa, :self.noa], x['aa']))
 
@@ -330,9 +352,22 @@ class molecule:
         if self.reference != 'rhf':
             Ax['bb'] -= (contract('kj,ikab->ijab', self.fb[:self.nob, :self.nob], x['bb']))
             Ax['bb'] += (contract('ki,jkab->ijab', self.fb[:self.nob, :self.nob], x['bb']))
-     
-
+        '''
+        Ax['ab'] -= contract('kj,ikab->ijab', self.fb[:self.nob, :self.nob], x['ab'])
+        Ax['ab'] -= contract('ki,kjab->ijab', self.fa[:self.noa, :self.noa], x['ab'])
+        if self.reference != 'rhf':     
+            Ax['aa'] -= (contract('kj,ikab->ijab', self.fa[:self.noa, :self.noa], x['aa']))
+            Ax['aa'] += (contract('ki,jkab->ijab', self.fa[:self.noa, :self.noa], x['aa']))
+            Ax['bb'] -= (contract('kj,ikab->ijab', self.fb[:self.nob, :self.nob], x['bb']))
+            Ax['bb'] += (contract('ki,jkab->ijab', self.fb[:self.nob, :self.nob], x['bb']))
+        else:
+            Ax['aa'] -= .5*(contract('kj,ikab->ijab', self.fa[:self.noa, :self.noa], x['aa']))
+            Ax['aa'] += .5*(contract('ki,jkab->ijab', self.fa[:self.noa, :self.noa], x['aa']))
+            Ax['aa'] -= .5*(contract('kj,ikab->ijab', self.fb[:self.nob, :self.nob], x['bb']))
+            Ax['aa'] += .5*(contract('ki,jkab->ijab', self.fb[:self.nob, :self.nob], x['bb']))
+            
         #D->D F (Particle Interaction)
+        '''
         Ax['aa'] += contract('bc,ijac->ijab', self.fa[self.noa:, self.noa:], x['aa'])
         Ax['aa'] -= contract('ac,ijbc->ijab', self.fa[self.noa:, self.noa:], x['aa'])
         Ax['ab'] += contract('bc,ijac->ijab', self.fb[self.nob:, self.nob:], x['ab'])
@@ -340,22 +375,56 @@ class molecule:
         if self.reference != 'rhf':
             Ax['bb'] += contract('bc,ijac->ijab', self.fb[self.nob:, self.nob:], x['bb'])
             Ax['bb'] -= contract('ac,ijbc->ijab', self.fb[self.nob:, self.nob:], x['bb'])
+        '''
+        Ax['ab'] += contract('bc,ijac->ijab', self.fb[self.nob:, self.nob:], x['ab'])
+        Ax['ab'] += contract('ac,ijcb->ijab', self.fa[self.noa:, self.noa:], x['ab'])
+        if self.reference != 'rhf':
+            Ax['aa'] += contract('bc,ijac->ijab', self.fa[self.noa:, self.noa:], x['aa'])
+            Ax['aa'] -= contract('ac,ijbc->ijab', self.fa[self.noa:, self.noa:], x['aa'])
+            Ax['bb'] += contract('bc,ijac->ijab', self.fb[self.nob:, self.nob:], x['bb'])
+            Ax['bb'] -= contract('ac,ijbc->ijab', self.fb[self.nob:, self.nob:], x['bb'])
+        else:
+            Ax['aa'] += .5*contract('bc,ijac->ijab', self.fa[self.noa:, self.noa:], x['aa'])
+            Ax['aa'] -= .5*contract('ac,ijbc->ijab', self.fa[self.noa:, self.noa:], x['aa'])
+            Ax['aa'] += .5*contract('bc,ijac->ijab', self.fb[self.nob:, self.nob:], x['bb'])
+            Ax['aa'] -= .5*contract('ac,ijbc->ijab', self.fb[self.nob:, self.nob:], x['bb'])
 
         #D->D V (Particle, Particle Interaction)
+
         Ax['aa'] += .5*contract('abcd,ijcd->ijab', self.l_aaaa[self.noa:, self.noa:, self.noa:, self.noa:], x['aa'])
         Ax['ab'] += .5*contract('abcd,ijcd->ijab', self.j_abab[self.noa:, self.nob:, self.noa:, self.nob:], x['ab'])
         Ax['ab'] += .5*contract('abdc,ijdc->ijab', self.j_abab[self.noa:, self.nob:, self.noa:, self.nob:], x['ab'])
         if self.reference != 'rhf':
             Ax['bb'] += .5*contract('abcd,ijcd->ijab', self.l_bbbb[self.nob:, self.nob:, self.nob:, self.nob:], x['bb'])
-
+        '''
+        Ax['ab'] += .5*contract('abcd,ijcd->ijab', self.j_abab[self.noa:, self.nob:, self.noa:, self.nob:], x['ab'])
+        Ax['ab'] += .5*contract('abdc,ijdc->ijab', self.j_abab[self.noa:, self.nob:, self.noa:, self.nob:], x['ab'])
+        if self.reference != 'rhf':
+            Ax['aa'] += .5*contract('abcd,ijcd->ijab', self.l_aaaa[self.noa:, self.noa:, self.noa:, self.noa:], x['aa'])
+            Ax['bb'] += .5*contract('abcd,ijcd->ijab', self.l_bbbb[self.nob:, self.nob:, self.nob:, self.nob:], x['bb'])
+        else: 
+            Ax['aa'] += .5*.5*contract('abcd,ijcd->ijab', self.l_aaaa[self.noa:, self.noa:, self.noa:, self.noa:], x['aa'])
+            Ax['aa'] += .5*.5*contract('abcd,ijcd->ijab', self.l_bbbb[self.nob:, self.nob:, self.nob:, self.nob:], x['bb'])
+        '''
         #D->D V (Hole, Hole Interaction)
+
         Ax['aa'] += .5*contract('ijkl,klab->ijab', self.l_aaaa[:self.noa, :self.noa, :self.noa, :self.noa], x['aa'])
         Ax['ab'] += .5*contract('ijkl,klab->ijab', self.j_abab[:self.noa, :self.nob, :self.noa, :self.nob], x['ab'])
         Ax['ab'] += .5*contract('ijlk,lkab->ijab', self.j_abab[:self.noa, :self.nob, :self.noa, :self.nob], x['ab'])
         if self.reference !=  'rhf':
             Ax['bb'] += .5*contract('ijkl,klab->ijab', self.l_bbbb[:self.nob, :self.nob, :self.nob, :self.nob], x['bb'])
-
+        '''
+        Ax['ab'] += .5*contract('ijkl,klab->ijab', self.j_abab[:self.noa, :self.nob, :self.noa, :self.nob], x['ab'])
+        Ax['ab'] += .5*contract('ijlk,lkab->ijab', self.j_abab[:self.noa, :self.nob, :self.noa, :self.nob], x['ab'])
+        if self.reference != 'rhf':
+            Ax['aa'] += .5*contract('ijkl,klab->ijab', self.l_aaaa[:self.noa, :self.noa, :self.noa, :self.noa], x['aa'])
+            Ax['bb'] += .5*contract('ijkl,klab->ijab', self.l_bbbb[:self.nob, :self.nob, :self.nob, :self.nob], x['bb'])
+        else: 
+            Ax['aa'] += .5*.5*contract('ijkl,klab->ijab', self.l_aaaa[:self.noa, :self.noa, :self.noa, :self.noa], x['aa'])
+            Ax['aa'] += .5*.5*contract('ijkl,klab->ijab', self.l_bbbb[:self.nob, :self.nob, :self.nob, :self.nob], x['bb'])
+        '''  
         #D->D V (Hole, Particle Interaction)
+        '''
         Ax['aa'] -= contract('akcj,ikcb->ijab', self.l_aaaa[self.noa:, :self.noa, self.noa:, :self.noa], x['aa'])
         Ax['aa'] += contract('bkcj,ikca->ijab', self.l_aaaa[self.noa:, :self.noa, self.noa:, :self.noa], x['aa'])
         Ax['aa'] += contract('akci,jkcb->ijab', self.l_aaaa[self.noa:, :self.noa, self.noa:, :self.noa], x['aa'])
@@ -383,8 +452,55 @@ class molecule:
             Ax['bb'] += contract('kbcj,kica->ijab', self.j_abab[:self.noa, self.nob:, self.noa:, :self.nob], x['ab'])
             Ax['bb'] += contract('kaci,kjcb->ijab', self.j_abab[:self.noa, self.nob:, self.noa:, :self.nob], x['ab'])
             Ax['bb'] -= contract('kbci,kjca->ijab', self.j_abab[:self.noa, self.nob:, self.noa:, :self.nob], x['ab'])
+        '''
+        Ax['ab'] -= contract('akcj,ikcb->ijab', self.j_abab[self.noa:, :self.nob, self.noa:, :self.nob], x['ab'])
+        Ax['ab'] -= contract('kbcj,ikca->ijab', self.j_abab[:self.noa, self.nob:, self.noa:, :self.nob], x['aa'])
+        Ax['ab'] += contract('akic,kjcb->ijab', self.j_abab[self.noa:, :self.nob, :self.noa, self.nob:], x['bb'])
+        Ax['ab'] -= contract('kbic,kjac->ijab', self.j_abab[:self.noa, self.nob:, :self.noa, self.nob:], x['ab'])
+        Ax['ab'] += contract('kbcj,ikac->ijab', self.l_bbbb[:self.nob, self.nob:, self.nob:, :self.nob], x['ab'])
+        Ax['ab'] -= contract('akci,kjcb->ijab', self.l_aaaa[self.noa:, :self.noa, self.noa:, :self.noa], x['ab'])
+        if self.reference != 'rhf':
+            Ax['aa'] -= contract('akcj,ikcb->ijab', self.l_aaaa[self.noa:, :self.noa, self.noa:, :self.noa], x['aa'])
+            Ax['aa'] += contract('bkcj,ikca->ijab', self.l_aaaa[self.noa:, :self.noa, self.noa:, :self.noa], x['aa'])
+            Ax['aa'] += contract('akci,jkcb->ijab', self.l_aaaa[self.noa:, :self.noa, self.noa:, :self.noa], x['aa'])
+            Ax['aa'] -= contract('bkci,jkca->ijab', self.l_aaaa[self.noa:, :self.noa, self.noa:, :self.noa], x['aa'])
 
+            Ax['aa'] -= contract('akjc,ikbc->ijab', self.j_abab[self.noa:, :self.nob, :self.noa, self.nob:], x['ab'])
+            Ax['aa'] += contract('bkjc,ikac->ijab', self.j_abab[self.noa:, :self.nob, :self.noa, self.nob:], x['ab'])
+            Ax['aa'] += contract('akic,jkbc->ijab', self.j_abab[self.noa:, :self.nob, :self.noa, self.nob:], x['ab'])
+            Ax['aa'] -= contract('bkic,jkac->ijab', self.j_abab[self.noa:, :self.nob, :self.noa, self.nob:], x['ab'])
+        
+            Ax['bb'] -= contract('akcj,ikcb->ijab', self.l_bbbb[self.nob:, :self.nob, self.nob:, :self.nob], x['bb'])
+            Ax['bb'] += contract('bkcj,ikca->ijab', self.l_bbbb[self.nob:, :self.nob, self.nob:, :self.nob], x['bb'])
+            Ax['bb'] += contract('akci,jkcb->ijab', self.l_bbbb[self.nob:, :self.nob, self.nob:, :self.nob], x['bb'])
+            Ax['bb'] -= contract('bkci,jkca->ijab', self.l_bbbb[self.nob:, :self.nob, self.nob:, :self.nob], x['bb'])
 
+            Ax['bb'] -= contract('kacj,kicb->ijab', self.j_abab[:self.noa, self.nob:, self.noa:, :self.nob], x['ab'])
+            Ax['bb'] += contract('kbcj,kica->ijab', self.j_abab[:self.noa, self.nob:, self.noa:, :self.nob], x['ab'])
+            Ax['bb'] += contract('kaci,kjcb->ijab', self.j_abab[:self.noa, self.nob:, self.noa:, :self.nob], x['ab'])
+            Ax['bb'] -= contract('kbci,kjca->ijab', self.j_abab[:self.noa, self.nob:, self.noa:, :self.nob], x['ab'])
+        else:
+            Ax['aa'] -= .5*contract('akcj,ikcb->ijab', self.l_aaaa[self.noa:, :self.noa, self.noa:, :self.noa], x['aa'])
+            Ax['aa'] += .5*contract('bkcj,ikca->ijab', self.l_aaaa[self.noa:, :self.noa, self.noa:, :self.noa], x['aa'])
+            Ax['aa'] += .5*contract('akci,jkcb->ijab', self.l_aaaa[self.noa:, :self.noa, self.noa:, :self.noa], x['aa'])
+            Ax['aa'] -= .5*contract('bkci,jkca->ijab', self.l_aaaa[self.noa:, :self.noa, self.noa:, :self.noa], x['aa'])
+
+            Ax['aa'] -= .5*contract('akjc,ikbc->ijab', self.j_abab[self.noa:, :self.nob, :self.noa, self.nob:], x['ab'])
+            Ax['aa'] += .5*contract('bkjc,ikac->ijab', self.j_abab[self.noa:, :self.nob, :self.noa, self.nob:], x['ab'])
+            Ax['aa'] += .5*contract('akic,jkbc->ijab', self.j_abab[self.noa:, :self.nob, :self.noa, self.nob:], x['ab'])
+            Ax['aa'] -= .5*contract('bkic,jkac->ijab', self.j_abab[self.noa:, :self.nob, :self.noa, self.nob:], x['ab'])
+        
+            Ax['aa'] -= .5*contract('akcj,ikcb->ijab', self.l_bbbb[self.nob:, :self.nob, self.nob:, :self.nob], x['bb'])
+            Ax['aa'] += .5*contract('bkcj,ikca->ijab', self.l_bbbb[self.nob:, :self.nob, self.nob:, :self.nob], x['bb'])
+            Ax['aa'] += .5*contract('akci,jkcb->ijab', self.l_bbbb[self.nob:, :self.nob, self.nob:, :self.nob], x['bb'])
+            Ax['aa'] -= .5*contract('bkci,jkca->ijab', self.l_bbbb[self.nob:, :self.nob, self.nob:, :self.nob], x['bb'])
+
+            Ax['aa'] -= .5*contract('kacj,kicb->ijab', self.j_abab[:self.noa, self.nob:, self.noa:, :self.nob], x['ab'])
+            Ax['aa'] += .5*contract('kbcj,kica->ijab', self.j_abab[:self.noa, self.nob:, self.noa:, :self.nob], x['ab'])
+            Ax['aa'] += .5*contract('kaci,kjcb->ijab', self.j_abab[:self.noa, self.nob:, self.noa:, :self.nob], x['ab'])
+            Ax['aa'] -= .5*contract('kbci,kjca->ijab', self.j_abab[:self.noa, self.nob:, self.noa:, :self.nob], x['ab'])
+           
+  
         Ax = at.collapse_tensor(Ax, self)
         Ax = at.concatenate_amps(Ax, self)
 
@@ -418,13 +534,18 @@ class molecule:
         Ax['ab'] = np.zeros((self.noa, self.nob, self.nva, self.nvb))
         Ax['bb'] = np.zeros((self.nob, self.nob, self.nvb, self.nvb))
         
-        Ax['a'] += contract('ijab,jb->ia', self.l_aaaa[:self.noa, :self.noa, self.noa:, self.noa:], x['a'])
-        Ax['a'] += contract('ijab,jb->ia', self.j_abab[:self.noa, :self.nob, self.noa:, self.nob:], x['b'])
+
         if self.reference != 'rhf':
+            Ax['a'] += contract('ijab,jb->ia', self.l_aaaa[:self.noa, :self.noa, self.noa:, self.noa:], x['a'])
+            Ax['a'] += contract('ijab,jb->ia', self.j_abab[:self.noa, :self.nob, self.noa:, self.nob:], x['b'])
             Ax['b'] += contract('ijab,jb->ia', self.l_bbbb[:self.nob, :self.nob, self.nob:, self.nob:], x['b'])
             Ax['b'] += contract('jiba,jb->ia', self.j_abab[:self.noa, :self.nob, self.noa:, self.nob:], x['a'])
-        if self.reference == 'rhf':
-            Ax['b'] = Ax['a'] 
+        else:
+            Ax['a'] += .5*contract('ijab,jb->ia', self.l_aaaa[:self.noa, :self.noa, self.noa:, self.noa:], x['a'])
+            Ax['a'] += .5*contract('ijab,jb->ia', self.j_abab[:self.noa, :self.nob, self.noa:, self.nob:], x['b'])
+            Ax['a'] += .5*contract('ijab,jb->ia', self.l_bbbb[:self.nob, :self.nob, self.nob:, self.nob:], x['b'])
+            Ax['a'] += .5*contract('jiba,jb->ia', self.j_abab[:self.noa, :self.nob, self.noa:, self.nob:], x['a'])
+
         
         Ax = at.collapse_tensor(Ax, self)
         Ax = at.concatenate_amps(Ax, self)
@@ -444,13 +565,17 @@ class molecule:
         Ax['ab'] = np.zeros((self.noa, self.nob, self.nva, self.nvb))
         Ax['bb'] = np.zeros((self.nob, self.nob, self.nvb, self.nvb))
         
-        Ax['a'] += contract('ijab,jb->ia', self.l_aaaa[:self.noa, :self.noa, self.noa:, self.noa:], x['a'])
-        Ax['a'] += contract('ijab,jb->ia', self.j_abab[:self.noa, :self.nob, self.noa:, self.nob:], x['b'])
         if self.reference != 'rhf':
+            Ax['a'] += contract('ijab,jb->ia', self.l_aaaa[:self.noa, :self.noa, self.noa:, self.noa:], x['a'])
+            Ax['a'] += contract('ijab,jb->ia', self.j_abab[:self.noa, :self.nob, self.noa:, self.nob:], x['b'])
             Ax['b'] += contract('ijab,jb->ia', self.l_bbbb[:self.nob, :self.nob, self.nob:, self.nob:], x['b'])
             Ax['b'] += contract('jiba,jb->ia', self.j_abab[:self.noa, :self.nob, self.noa:, self.nob:], x['a'])
-        if self.reference == 'rhf':
-            Ax['b'] = Ax['a'] 
+        else:
+            Ax['a'] += .5*contract('ijab,jb->ia', self.l_aaaa[:self.noa, :self.noa, self.noa:, self.noa:], x['a'])
+            Ax['a'] += .5*contract('ijab,jb->ia', self.j_abab[:self.noa, :self.nob, self.noa:, self.nob:], x['b'])
+            Ax['a'] += .5*contract('ijab,jb->ia', self.l_bbbb[:self.nob, :self.nob, self.nob:, self.nob:], x['b'])
+            Ax['a'] += .5*contract('jiba,jb->ia', self.j_abab[:self.noa, :self.nob, self.noa:, self.nob:], x['a'])
+
          
         Ax = at.collapse_tensor(Ax, self)
         Ax = at.concatenate_amps(Ax, self)
@@ -473,18 +598,21 @@ class molecule:
         Ax['aa'] = np.zeros((self.noa, self.noa, self.nva, self.nva))
         Ax['ab'] = np.zeros((self.noa, self.nob, self.nva, self.nvb))
         Ax['bb'] = np.zeros((self.nob, self.nob, self.nvb, self.nvb))
-        
-        Ax['a'] += contract('ijab,jb->ia', self.l_aaaa[:self.noa, :self.noa, self.noa:, self.noa:], x['a'])
-        Ax['a'] += contract('ijab,jb->ia', self.j_abab[:self.noa, :self.nob, self.noa:, self.nob:], x['b'])
+         
         if self.reference != 'rhf':
+            Ax['a'] += contract('ijab,jb->ia', self.l_aaaa[:self.noa, :self.noa, self.noa:, self.noa:], x['a'])
+            Ax['a'] += contract('ijab,jb->ia', self.j_abab[:self.noa, :self.nob, self.noa:, self.nob:], x['b'])
             Ax['b'] += contract('ijab,jb->ia', self.l_bbbb[:self.nob, :self.nob, self.nob:, self.nob:], x['b'])
             Ax['b'] += contract('jiba,jb->ia', self.j_abab[:self.noa, :self.nob, self.noa:, self.nob:], x['a'])
-        if self.reference == 'rhf':
-            Ax['b'] = Ax['a'] 
-        
+        else:
+            Ax['a'] += .5*contract('ijab,jb->ia', self.l_aaaa[:self.noa, :self.noa, self.noa:, self.noa:], x['a'])
+            Ax['a'] += .5*contract('ijab,jb->ia', self.j_abab[:self.noa, :self.nob, self.noa:, self.nob:], x['b'])
+            Ax['a'] += .5*contract('ijab,jb->ia', self.l_bbbb[:self.nob, :self.nob, self.nob:, self.nob:], x['b'])
+            Ax['a'] += .5*contract('jiba,jb->ia', self.j_abab[:self.noa, :self.nob, self.noa:, self.nob:], x['a'])
+         
         Ax = at.collapse_tensor(Ax, self)
         Ax = at.concatenate_amps(Ax, self)
-        return term1+term3+2*self.lam*Ax
+        return term1+term3+self.x.dot(self.x)*Ax
 
 
 
@@ -529,20 +657,6 @@ class molecule:
             energy = self.hf_energy + 2*x.T.dot(b) + x.T.dot(self.shifted_A(x))
         return energy
     
-    def ic3epa_energy(self, x):
-        self.x = copy.copy(x)
-        self.lam = .5*x.T.dot(x)
-        b = self.cepa_b()
-        b = at.collapse_tensor(b, self)
-        b = at.concatenate_amps(b, self)
-        if self.reference == 'rhf':
-            Ax = at.rhf_to_uhf(self.ic3epa_A(x), self)
-            b = at.rhf_to_uhf(b, self)
-            x = at.rhf_to_uhf(x, self)
-            energy = self.hf_energy + 2*x.T.dot(b) + x.T.dot(Ax)
-        else:
-            energy = self.hf_energy + 2*x.T.dot(b) + x.T.dot(self.ic3epa_A(x))
-        return energy
 
     def c3epa_energy(self, x):
         b = self.cepa_b()
@@ -560,7 +674,7 @@ class molecule:
 
     def bfgs_ic3epa_energy(self, x):
         self.lam = .5*x.T.dot(x)
-        self.lam = 0
+        self.x = copy.copy(x)
         b = self.cepa_b()
         b = at.collapse_tensor(b, self)
         b = at.concatenate_amps(b, self)
@@ -571,7 +685,6 @@ class molecule:
             energy = self.hf_energy + 2*x.T.dot(b) + x.T.dot(Ax)
         else:
             energy = self.hf_energy + 2*x.T.dot(b) + x.T.dot(self.c3epa_A(x))
-        
         return energy
 
     def lagrangian(self, x):
@@ -598,25 +711,47 @@ class molecule:
                 hessian[:,i] = self.cepa_A(x)
         else:
             nsym = self.noa*self.nva+int(.25*self.noa*(self.noa-1)*self.nva*(self.nva-1))
-
-            for i in range(0, 6):
+            for i in range(0, len(self.b)):
                 x = np.zeros(len(self.b))
                 x[i] = 1
-                #if i<nsym:
-                #    x *= np.sqrt(2)
+
                 ax = self.cepa_A(x)
 
                 #for j in range(0, len(ax)):
                 #    if j<nsym and i>=nsym:
                 #        ax[j] *= np.sqrt(2)
                 hessian[:,i] = ax
-        print(str(hessian).replace('\n', ''))
+        #print(str(hessian).replace('\n', ''))
         tmp = at.decatenate_amps(hessian[:,0], self)
 
-        #print(np.linalg.norm(hessian - hessian.T))
-        exit()
+        print(np.linalg.norm(hessian - hessian.T))
+
         return hessian
  
+    def build_shifted_hessian(self):
+        hessian = np.zeros((len(self.b), len(self.b)))
+        if self.reference != 'rhf':
+            for i in range(0, len(self.b)):
+                x = np.zeros(len(self.b))
+                x[i] = 1.0
+                hessian[:,i] = self.shifted_A(x)
+        else:
+            nsym = self.noa*self.nva+int(.25*self.noa*(self.noa-1)*self.nva*(self.nva-1))
+            for i in range(0, len(self.b)):
+                x = np.zeros(len(self.b))
+                x[i] = 1
+
+                ax = self.shifted_A(x)
+
+                #for j in range(0, len(ax)):
+                #    if j<nsym and i>=nsym:
+                #        ax[j] *= np.sqrt(2)
+                hessian[:,i] = ax
+        #print(str(hessian).replace('\n', ''))
+        tmp = at.decatenate_amps(hessian[:,0], self)
+        print(np.linalg.norm(hessian - hessian.T))
+
+        return hessian
     def cg_shucc(self, b):
         x = 0*b
         r = b
