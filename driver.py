@@ -2,7 +2,6 @@ import numpy as np
 from opt_einsum import contract
 import copy
 
-import tensortools as tt
 import algebratools as at
 import copy
 import scipy
@@ -14,6 +13,7 @@ class molecule:
         self.optimize = False
         self.scf = False
         self.mp2 = False
+        self.bfgs_ic3epa = False
         self.ccsd = False
         self.ccsdpt = False
         self.cepa0 = False
@@ -50,10 +50,10 @@ class molecule:
 
         psi4.set_memory(self.mem)
         if self.optimize != False:
-            psi4.set_options({'reference': self.reference, 'scf_type': 'pk', 'g_convergence': 'GAU_TIGHT', 'd_convergence': 1e-12})
+            psi4.set_options({'reference': self.reference, 'scf_type': 'pk', 'g_convergence': 'GAU_TIGHT', 'd_convergence': 1e-11})
 
-            psi4.set_options({'opt_coordinates': self.optimize, 'geom_maxiter': 300})
-            E, wfnopt = psi4.optimize('scf/6-31G*', return_wfn = True)
+            psi4.set_options({'opt_coordinates': self.optimize, 'geom_maxiter': 500})
+            E, wfnopt = psi4.optimize('scf/6-311G(d,p)', return_wfn = True)
             E, wfnopt = psi4.optimize('b3lyp/6-311G(d,p)', return_wfn = True)
             log.write((wfnopt.molecule().create_psi4_string_from_molecule()))
 
