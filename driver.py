@@ -25,10 +25,11 @@ class molecule:
         self.aqcc = False
         self.uaqcc = False
         self.run_ic3epa = False
+        self.ocepa = False
         self.sys_name = None
         self.tol = 1e-14
         self.log_file = 'out.dat'
-        self.mem = '8GB'
+        self.mem = '24GB'
         for key, value in kwargs.items():
             setattr(self, key, value)
         try:
@@ -52,7 +53,7 @@ class molecule:
         if self.optimize != False:
             psi4.set_options({'reference': self.reference, 'scf_type': 'pk', 'g_convergence': 'GAU_TIGHT', 'd_convergence': 1e-11})
 
-            psi4.set_options({'opt_coordinates': self.optimize, 'geom_maxiter': 500})
+            psi4.set_options({'opt_coordinates': self.optimize, 'geom_maxiter': 500, 'mp2_type': 'conv'})
             E, wfnopt = psi4.optimize('scf/6-311G(d,p)', return_wfn = True)
             E, wfnopt = psi4.optimize('b3lyp/6-311G(d,p)', return_wfn = True)
             log.write((wfnopt.molecule().create_psi4_string_from_molecule()))
@@ -70,6 +71,8 @@ class molecule:
             print("CCSD(T) energy:".ljust(30)+("{0:20.16f}".format(psi4.energy('ccsd(t)'))))   
         if self.lccd == True:
             print("LCCD energy:".ljust(30)+("{0:20.16f}".format(psi4.energy('lccd'))))   
+        if self.ocepa == True:
+            print("LCCD energy:".ljust(30)+("{0:20.16f}".format(psi4.energy('olccd'))))   
 
 
 
@@ -136,7 +139,7 @@ class molecule:
         if self.run_ic3epa == True:
             self.lam = 0
             c3epa = self.ic3epa()
-            print("IC3EPA energy:".ljust(30)+("{0:20.16f}".format(c3epa)))   
+            #print("IC3EPA energy:".ljust(30)+("{0:20.16f}".format(c3epa)))   
         if self.uacpf == True:
             self.s2_term = True
             self.shift = 'acpf'            
