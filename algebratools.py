@@ -135,6 +135,12 @@ def rhf_to_uhf(amps, mol):
     vec = decatenate_amps(amps, mol)
     return concatenate_amps(vec, mol, reference = 'uhf') 
 
+def uhf_to_rhf(amps, mol):
+    assert(mol.reference == 'rhf')
+    vec = decatenate_amps(amps, mol, reference = 'uhf')
+    return concatenate_amps(vec, mol, reference = 'rhf')
+    
+
 def asym(ten):
     #Returns antisymmetrized (ijab-jiab-ijba+jiba)
     ten2 = -np.swapaxes(ten, 0, 1)

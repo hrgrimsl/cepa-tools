@@ -2,60 +2,43 @@ from driver import *
 from multiprocessing import Process, Queue
 
 geometry = """
-0 2
-   C       -4.67547        1.47099       -0.00000
-   H       -4.67547        0.45998       -0.38699
-   H       -4.67547        2.31164       -0.68207
-   H       -4.67547        1.64136        1.06906
+0 1
+   O        8.46572       12.31468        9.99183
+   H        9.43361       12.35705       10.01083
+   H        8.18687       13.16146       10.37154
 symmetry c1
 """
 
 geometry2 = """
 0 1
-  Cl       -4.14193        1.38332        0.00000
-  Cl       -2.22337        0.77732        0.00000
+   H 0 0 0 
+   Cl 0 0 1
 symmetry c1
 """
 
 geometry3 = """
-   C       -3.29000        0.34682       -0.00000
-  Cl       -1.52303        0.34682        0.00000
-   H       -3.64703        1.09071       -0.71558
-   H       -3.64703        0.59459        1.00202
-   H       -3.64703       -0.64483       -0.28644
+0 1
+   H 0 0 0
+   Cl 0 0 1
+
+   O        100008.46572       100012.31468        100009.99183
+   H        100009.43361       100012.35705       100010.01083
+   H        100008.18687       100013.16146       100010.37154
 symmetry c1
 """
 
-geometry4 = """
-0 2
-Cl 0 0 0
-symmetry c1
-"""
+
 queue = Queue()
-p = Process(target = molecule, args = (geometry, 'cc-pvdz', 'uhf'), kwargs = {'optimize': True})
+p = Process(target = molecule, args = (geometry, 'cc-pvdz', 'rhf'), kwargs = {'optimize': False, 'cepa1': True, 'psi_acpf': True, 'acpf': False, 'psi_aqcc': True, 'aqcc': False, 'cepa0': False, 'ccsd': True, 'psi_cepa0': True, 'ucc3': True, 'shucc': True, 'scf': True, 'fci': False})
 p.start()
 p.join()
 
-p = Process(target = molecule, args = (geometry2, 'cc-pvdz', 'rhf'), kwargs = {'optimize': True})
+queue = Queue()
+p = Process(target = molecule, args = (geometry2, 'cc-pvdz', 'rhf'), kwargs = {'optimize': False, 'cepa1': True, 'psi_acpf': True, 'acpf': False, 'psi_aqcc': True, 'aqcc': False, 'cepa0': False, 'ccsd': True, 'psi_cepa0': True, 'ucc3': True, 'shucc': True, 'scf': True, 'fci': False})
 p.start()
 p.join()
 
-p = Process(target = molecule, args = (geometry3, 'cc-pvdz', 'rhf'), kwargs = {'optimize': True})
+queue = Queue()
+p = Process(target = molecule, args = (geometry3, 'cc-pvdz', 'rhf'), kwargs = {'optimize': False, 'cepa1': True, 'psi_acpf': True, 'acpf': False, 'psi_aqcc': True, 'aqcc': False, 'cepa0': False, 'ccsd': True, 'psi_cepa0': True, 'ucc3': True, 'shucc': True, 'scf': True, 'fci': False})
 p.start()
 p.join()
-
-p = Process(target = molecule, args = (geometry4, 'cc-pvdz', 'uhf'), kwargs = {'optimize': False})
-p.start()
-p.join()
-
-
-#ch3 = molecule(geometry, 'cc-pvdz', 'uhf', optimize = True)
-
-#cl2 = molecule(geometry2, 'cc-pvdz', 'rhf', optimize = True)
-
-#ch3cl = molecule(geometry3, 'cc-pvdz', 'rhf', optimize = True)
-
-#cl = molecule(geometry4, 'cc-pvdz', 'uhf', optimize = False)
-
-
-#print(he2.cepa() + h.cepa())

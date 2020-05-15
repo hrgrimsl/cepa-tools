@@ -15,18 +15,24 @@ class molecule:
         self.mp2 = False
         self.bfgs_ic3epa = False
         self.ccsd = False
+        self.cepa1 = False
         self.ccsdpt = False
         self.cepa0 = False
         self.shucc = False
         self.lam_cepa = None
         self.lccd = False
         self.acpf = False
+        self.psi_acpf = False
+        self.psi_aqcc = False
+        self.psi_cepa0 = False
         self.uacpf = False
         self.aqcc = False
         self.uaqcc = False
         self.run_ic3epa = False
         self.ocepa = False
-        self.sys_name = None
+        self.fci = False
+        self.sys_name = "Unnamed system:"
+        self.ucc3 = False
         self.tol = 1e-14
         self.log_file = 'out.dat'
         self.mem = '24GB'
@@ -42,6 +48,7 @@ class molecule:
 
         psi4.geometry(geometry)
         psi4.core.be_quiet()
+        psi4.core.clean()
         if os.path.exists(self.log_file):
             cha = 'a'
         else:
@@ -51,14 +58,14 @@ class molecule:
 
         psi4.set_memory(self.mem)
         if self.optimize != False:
-            psi4.set_options({'reference': self.reference, 'scf_type': 'pk', 'g_convergence': 'GAU_TIGHT', 'd_convergence': 1e-11})
+            psi4.set_options({'reference': self.reference, 'scf_type': 'pk', 'g_convergence': 'GAU_TIGHT', 'd_convergence': 1e-10})
 
             psi4.set_options({'opt_coordinates': self.optimize, 'geom_maxiter': 500, 'mp2_type': 'conv'})
             E, wfnopt = psi4.optimize('scf/6-311G(d,p)', return_wfn = True)
             E, wfnopt = psi4.optimize('b3lyp/6-311G(d,p)', return_wfn = True)
             log.write((wfnopt.molecule().create_psi4_string_from_molecule()))
 
-        psi4.set_options({'reference': reference, 'basis': basis, 'd_convergence': 1e-14, 'scf_type': 'pk', 'r_convergence': 1e-10, 'maxiter': 100, 'cc_type': 'conv'})
+        psi4.set_options({'reference': reference, 'basis': basis, 'd_convergence': 1e-10, 'scf_type': 'pk', 'r_convergence': 1e-10, 'maxiter': 100, 'cc_type': 'conv'})
 
         self.hf_energy, wfn = psi4.energy('scf', return_wfn = True)
         if self.scf == True:
@@ -71,10 +78,22 @@ class molecule:
             print("CCSD(T) energy:".ljust(30)+("{0:20.16f}".format(psi4.energy('ccsd(t)'))))   
         if self.lccd == True:
             print("LCCD energy:".ljust(30)+("{0:20.16f}".format(psi4.energy('lccd'))))   
+        if self.cepa1 == True:
+            print("CEPA(1) energy:".ljust(30)+("{0:20.16f}".format(psi4.energy('cepa(1)'))))   
         if self.ocepa == True:
-            print("LCCD energy:".ljust(30)+("{0:20.16f}".format(psi4.energy('olccd'))))   
+            print("OCEPA energy:".ljust(30)+("{0:20.16f}".format(psi4.energy('olccd'))))   
 
+        if self.fci == True:
+            print("FCI energy:".ljust(30)+("{0:20.16f}".format(psi4.energy('fci'))))   
 
+        if self.psi_acpf == True:
+            print("ACPF energy:".ljust(30)+("{0:20.16f}".format(psi4.energy('acpf'))))
+        
+        if self.psi_aqcc == True:
+            print("AQCC energy:".ljust(30)+("{0:20.16f}".format(psi4.energy('aqcc'))))
+
+        if self.psi_cepa0 == True:
+            print("CEPA(0) energy:".ljust(30)+("{0:20.16f}".format(psi4.energy('cepa(0)'))))
 
         mints = psi4.core.MintsHelper(wfn.basisset())
         ca = wfn.Ca()
@@ -131,7 +150,36 @@ class molecule:
         if self.shucc == True:
             self.lam = 1
             c3epa = self.c3epa()
-            print("SHUCC energy:".ljust(30)+("{0:20.16f}".format(c3epa)))   
+            print("UCC-2 energy:".ljust(30)+("{0:20.16f}".format(c3epa)))   
+        '''
+        if self.ucc3 == True:
+            self.lam = 1
+            b = self.b
+            x = 0*b
+            #res = scipy.optimize.minimize(self.ucc3_energy, x, jac = self.ucc3_gradient, method = 'bfgs', options = {'gtol': 1e-5, 'disp': True})
+            #res = scipy.optimize.minimize(self.ucc3_energy, x, jac = self.numerical_ucc3_gradient, method = 'bfgs', options = {'gtol': 1e-5, 'disp': True})
+            res = scipy.optimize.minimize(self.ucc3_energy, x, jac = None, method = 'bfgs', options = {'gtol': 1e-9, 'disp': True})
+            print("UCC(3) energy:".ljust(30)+("{0:20.16f}".format(res.fun)))
+            self.x = res.x
+            x = res.x
+            self.shift = 'ucc3'
+            if self.reference == 'rhf':
+                x2 = at.rhf_to_uhf(x, self)
+                shift = []
+                for i in range(0, len(x2)):
+                    shift.append(x2[i]**2)
+                shift = np.array(shift)
+                shift = at.uhf_to_rhf(shift, self)
+            else:
+                shift = []
+                for i in range(0, len(x)):
+                    shift.append(x[i]**2)
+                shift = np.array(shift)
+            #print('shift')
+            #print(shift)
+            #print('gradient')
+            #print(self.shifted_A(x)+self.b)
+        '''
         if self.lam_cepa != None:
             self.lam = self.lam_cepa
             c3epa = self.c3epa()
@@ -150,6 +198,13 @@ class molecule:
             self.shift = 'aqcc'            
             uaqcc = self.shifted_cepa()
             print("UAQCC energy:".ljust(30)+("{0:20.16f}".format(uaqcc)))   
+         
+        if self.ucc3 == True:
+            self.lam = 1
+            self.shift = 'ucc3'            
+            ucc3 = self.shifted_cepa()
+            print("UCC(3) energy:".ljust(30)+("{0:20.16f}".format(ucc3)))   
+
         if self.bfgs_ic3epa == True:
             b = self.cepa_b()
             b = at.collapse_tensor(b, self)
@@ -193,22 +248,39 @@ class molecule:
         b = at.concatenate_amps(b, self)
         norm = 1
         old = b*0
-        self.Ec = 0
-        x0 = 0*b
-        while abs(norm)>1e-14:         
+        self.Ec = 0 
+        x = 0*b
+        self.x = copy.copy(x)
+        while abs(norm)>1e-18:         
             Aop = scipy.sparse.linalg.LinearOperator((len(b), len(b)), matvec = self.shifted_A, rmatvec = self.shifted_A)
-            x, info = scipy.sparse.linalg.cg(Aop, -b, tol = self.tol)
-        
-            norm = (old-x).dot(old-x)
-            old = copy.copy(x)
-            x0 = x
+            x, info = scipy.sparse.linalg.cg(Aop, -b, tol = self.tol, x0 = x)
             if self.reference == 'rhf':
-                Ax2 = at.rhf_to_uhf(self.shifted_A(x), self)
-                b2 = at.rhf_to_uhf(b, self)
-                x2 = at.rhf_to_uhf(x, self)
-                energy = self.hf_energy + 2*x2.T.dot(b2) + x2.T.dot(Ax2)
-            else:   
-                energy = self.hf_energy + 2*x.T.dot(b) + x.T.dot(self.shifted_A(x))        
+                norm = at.rhf_to_uhf(old-x, self).dot(at.rhf_to_uhf(old-x, self))
+            else:
+                norm = (old-x).dot(old-x)
+            old = copy.copy(x)
+            x0 = copy.copy(x)
+            if self.reference == 'rhf':
+
+                #print(x2)
+                if self.shift == 'ucc3':
+                    Ax2 = self.shifted_A(x)
+                    #print(Ax2)
+                    #energy = self.hf_energy + 2*x2.T.dot(b2) + x2.T.dot(Ax2)-(4/3)*x2.T.dot(xdiag).dot(xdiag).dot(b2)
+                    energy = self.ucc3_energy(x)
+                    #print(at.rhf_to_uhf(self.shifted_A(x), self))
+                else:
+                    b2 = at.rhf_to_uhf(b, self)
+                    x2 = at.rhf_to_uhf(x, self)
+                    Ax2 = at.rhf_to_uhf(self.shifted_A(x), self)
+                    energy = self.hf_energy + 2*x2.T.dot(b2) + x2.T.dot(Ax2)
+            else:
+                if self.shift == 'ucc3':
+                    #print(self.shifted_A(x))
+                    energy = self.ucc3_energy(x)
+                else:  
+                    energy = self.hf_energy + 2*x.T.dot(b) + x.T.dot(self.shifted_A(x))        
+            self.x = copy.copy(x)
             self.Ec = energy-self.hf_energy
         return energy
 
@@ -510,17 +582,55 @@ class molecule:
         return Ax
  
     def shifted_A(self, x):
+        x0 = copy.copy(x)
+        if self.reference == 'rhf':
+            selfx2 = at.rhf_to_uhf(self.x, self)
+
+        if self.reference == 'rhf':
+            x = at.rhf_to_uhf(x, self)
+        
         N = self.noa + self.nob
+      
         if self.shift == 'acpf':
             shift = 2*self.Ec/N
+            shift = x*shift
+
         elif self.shift == 'aqcc':
-            shift = (1-(N-3)*(N-2)/(N*(N-1)))*self.Ec          
+            shift = (1-(N-3)*(N-2)/(N*(N-1)))*self.Ec
+            shift = x*shift
+
+        elif self.shift == 'ucc3':
+            shift = []
+            if self.reference == 'rhf':
+                b2 = at.rhf_to_uhf(self.b, self)
+                for i in range(0, len(x)):
+                    shift.append(b2[i]*selfx2[i]*x[i])
+                Ax0 = self.c3epa_A(x0)
+                return Ax0 - at.uhf_to_rhf(np.array(shift), self)
+            else:
+                for i in range(0, len(x)):
+                    shift.append(self.b[i]*self.x[i]*x0[i])
+                Ax0 = self.c3epa_A(x0)
+                return Ax0 - shift
+
+
+
         if self.s2_term == True:
             self.lam = 1
-            Ax0 = self.c3epa_A(x)        
+            Ax0 = self.c3epa_A(x0)
+            if self.reference == 'rhf':
+                #print(np.linalg.norm(at.uhf_to_rhf(at.rhf_to_uhf(Ax0, self), self) - Ax0))
+                return Ax0 - at.uhf_to_rhf(shift, self)
+            else:
+                return Ax0-shift                
+       
         elif self.s2_term == False:
-            Ax0 = self.cepa_A(x)
-        return Ax0 - shift*x 
+            Ax0 = self.cepa_A(x0)
+            if self.reference == 'rhf':       
+                return Ax0 - at.uhf_to_rhf(shift, self)
+            else:
+                return Ax0-shift                
+
  
     def c3epa_A(self, x):
         A0 = self.cepa_A(x)
@@ -690,6 +800,61 @@ class molecule:
             energy = self.hf_energy + 2*x.T.dot(b) + x.T.dot(self.c3epa_A(x))
         return energy
 
+    def ucc3_gradient(self, x):
+        b = copy.copy(self.b)
+        t3 = []
+
+        if self.reference == 'rhf':
+            Ax = at.rhf_to_uhf(self.c3epa_A(x), self)
+            b = at.rhf_to_uhf(b, self)
+            x = at.rhf_to_uhf(x, self)
+            for i in range(0, len(b)):
+                t3.append(-4*b[i]*((x[i])**2))
+            t3 = np.array(t3)
+            gradient = b + Ax + t3
+            gradient = at.uhf_to_rhf(gradient, self)
+
+        else:
+            for i in range(0, len(b)):
+                t3.append(-4*b[i]*((x[i])**2))
+            t3 = np.array(t3)
+            gradient = b + self.c3epa_A(x) + t3
+        return gradient
+
+    def numerical_ucc3_gradient(self, x):
+        gradient = []
+        h = 1e-10
+        for i in range(0, len(x)):
+            cur = copy.copy(x)
+            forward = copy.copy(cur)
+            forward[i] += h
+            efor = self.ucc3_energy(forward)
+            reverse = copy.copy(cur)
+            reverse[i] -= h
+            erev = self.ucc3_energy(reverse)
+            gradient.append((efor-erev)/(2*h))
+        return np.array(gradient)
+            
+
+    def ucc3_energy(self, x):
+        b = copy.copy(self.b)
+        t3 = 0
+        if self.reference == 'rhf':
+            Ax = at.rhf_to_uhf(self.c3epa_A(x), self)
+            b = at.rhf_to_uhf(b, self)
+            x = at.rhf_to_uhf(x, self)
+            for i in range(0, len(x)):
+                t3 -= 2/3*b[i]*((x[i])**3)
+
+            energy = self.hf_energy + 2*x.T.dot(b) + x.T.dot(Ax) + t3
+        else:
+            for i in range(0, len(b)):
+                t3 -= 2/3*b[i]*((x[i])**3)
+            energy = self.hf_energy + 2*x.T.dot(b) + x.T.dot(self.c3epa_A(x)) + t3
+        return energy
+          
+
+        
     def lagrangian(self, x):
         self.lam = .5*x.T.dot(x)
         self.lam = 0
