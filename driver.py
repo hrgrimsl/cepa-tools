@@ -61,7 +61,8 @@ class molecule:
             psi4.set_options({'reference': self.reference, 'scf_type': 'pk', 'g_convergence': 'GAU_TIGHT', 'd_convergence': 1e-10})
 
             psi4.set_options({'opt_coordinates': self.optimize, 'geom_maxiter': 500, 'mp2_type': 'conv'})
-            E, wfnopt = psi4.optimize('scf/6-311G(d,p)', return_wfn = True)
+            #E, wfnopt = psi4.optimize('scf/6-311G(d,p)', return_wfn = True)
+            #E, wfnopt = psi4.optimize('mp2/6-311G(d,p)', return_wfn = True)
             E, wfnopt = psi4.optimize('b3lyp/6-311G(d,p)', return_wfn = True)
             log.write((wfnopt.molecule().create_psi4_string_from_molecule()))
 
@@ -73,12 +74,12 @@ class molecule:
         if self.mp2 == True:
             print("MP2 energy:".ljust(30)+("{0:20.16f}".format(psi4.energy('mp2'))))   
         if self.ccsd == True:
-            print("CCSD energy:".ljust(30)+("{0:20.16f}".format(psi4.energy('mp2'))))   
+            print("CCSD energy:".ljust(30)+("{0:20.16f}".format(psi4.energy('ccsd'))))   
         if self.ccsdpt == True:
             print("CCSD(T) energy:".ljust(30)+("{0:20.16f}".format(psi4.energy('ccsd(t)'))))   
         if self.lccd == True:
             print("LCCD energy:".ljust(30)+("{0:20.16f}".format(psi4.energy('lccd'))))   
-        if self.cepa1 == True:
+        if self.cepa1 == True and self.reference == 'rhf':
             print("CEPA(1) energy:".ljust(30)+("{0:20.16f}".format(psi4.energy('cepa(1)'))))   
         if self.ocepa == True:
             print("OCEPA energy:".ljust(30)+("{0:20.16f}".format(psi4.energy('olccd'))))   
