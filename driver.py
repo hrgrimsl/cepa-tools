@@ -25,12 +25,16 @@ class molecule:
         self.psi_acpf = False
         self.psi_aqcc = False
         self.psi_cepa0 = False
+        self.olccd_iters = 50
         self.uacpf = False
         self.aqcc = False
         self.uaqcc = False
         self.run_ic3epa = False
         self.ocepa = False
         self.fci = False
+        self.d_convergence = 1e-6
+        self.r_convergence = 1e-5
+        self.run_svd = False
         self.sys_name = "Unnamed system:"
         self.ucc3 = False
         self.tol = 1e-14
@@ -47,7 +51,7 @@ class molecule:
         print(self.sys_name)
 
         psi4.geometry(geometry)
-        psi4.core.be_quiet()
+        #psi4.core.be_quiet()
         psi4.core.clean()
         if os.path.exists(self.log_file):
             cha = 'a'
@@ -58,15 +62,17 @@ class molecule:
 
         psi4.set_memory(self.mem)
         if self.optimize != False:
-            psi4.set_options({'reference': self.reference, 'scf_type': 'pk', 'g_convergence': 'GAU_TIGHT', 'd_convergence': 1e-10})
+            
+            psi4.set_options({'reference': self.reference, 'scf_type': 'pk', 'g_convergence': 'GAU_TIGHT', 'd_convergence': self.d_convergence})
 
             psi4.set_options({'opt_coordinates': self.optimize, 'geom_maxiter': 500, 'mp2_type': 'conv'})
+            #Some intermediates tweaked to converge problem systems, final optimization obviously kept the same.
             #E, wfnopt = psi4.optimize('scf/6-311G(d,p)', return_wfn = True)
             #E, wfnopt = psi4.optimize('mp2/6-311G(d,p)', return_wfn = True)
             E, wfnopt = psi4.optimize('b3lyp/6-311G(d,p)', return_wfn = True)
             log.write((wfnopt.molecule().create_psi4_string_from_molecule()))
 
-        psi4.set_options({'reference': reference, 'basis': basis, 'd_convergence': 1e-10, 'scf_type': 'pk', 'r_convergence': 1e-10, 'maxiter': 100, 'cc_type': 'conv'})
+        psi4.set_options({'reference': reference, 'basis': basis, 'd_convergence': self.d_convergence, 'scf_type': 'pk', 'r_convergence': self.r_convergence, 'maxiter': 100, 'cc_type': 'conv', 'mo_maxiter': self.mo_maxiter})
 
         self.hf_energy, wfn = psi4.energy('scf', return_wfn = True)
         if self.scf == True:
@@ -222,9 +228,12 @@ class molecule:
         b = at.collapse_tensor(b, self)
         b = at.concatenate_amps(b, self)
         Aop = scipy.sparse.linalg.LinearOperator((len(b), len(b)), matvec = self.cepa_A, rmatvec = self.cepa_A)
-        #print(scipy.sparse.linalg.eigsh(Aop, k = 3)[0])
-        #print(scipy.sparse.linalg.svds(Aop, k = 3)[1])
-
+        if self.run_svd == True:
+            #print(scipy.sparse.linalg.eigsh(Aop, k = 3)[0])
+            print('Getting SVD of H_N:')
+            print(scipy.sparse.linalg.svds(Aop, k = 3, which = 'SM')[1])
+            print(scipy.sparse.linalg.svds(Aop, k = 3, which = 'LM')[1])
+            
         #A = self.build_hessian()
 
         #x, y = np.linalg.eig(A)
