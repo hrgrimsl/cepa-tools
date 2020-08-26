@@ -21,6 +21,9 @@ class molecule:
         self.shucc = False
         self.lam_cepa = None
         self.lccd = False
+        self.tik_cepa = False
+        self.omega = .1
+        self.mo_maxiter = 1000
         self.acpf = False
         self.psi_acpf = False
         self.psi_aqcc = False
@@ -37,6 +40,8 @@ class molecule:
         self.run_svd = False
         self.sys_name = "Unnamed system:"
         self.ucc3 = False
+        self.bicg = False
+        self.tik_shucc = False
         self.tol = 1e-14
         self.log_file = 'out.dat'
         self.mem = '24GB'
@@ -51,7 +56,7 @@ class molecule:
         print(self.sys_name)
 
         psi4.geometry(geometry)
-        #psi4.core.be_quiet()
+        psi4.core.be_quiet()
         psi4.core.clean()
         if os.path.exists(self.log_file):
             cha = 'a'
@@ -220,7 +225,48 @@ class molecule:
             res = scipy.optimize.minimize(self.bfgs_ic3epa_energy, x, method = 'bfgs', options = {'gtol': 1e-10})
             print("Variational IC3EPA energy:".ljust(30)+("{0:20.16f}".format(self.bfgs_ic3epa_energy(res.x))))
 
+        if self.tik_cepa == True:
+            cepa = self.tikhonov_cepa()
+            print("Tikhonov-CEPA(0) energy:".ljust(30)+("{0:20.16f}".format(cepa)))
+        if self.tik_shucc == True:
+            cepa = self.tikhonov_shucc()
+            print("Tikhonov-SHUCC energy:".ljust(30)+("{0:20.16f}".format(cepa)))
+    
+    def tikhonov_cepa(self):
+        b = self.cepa_b()
+        b = at.collapse_tensor(b, self)
+        b = at.concatenate_amps(b, self)
+        Aop = scipy.sparse.linalg.LinearOperator((len(b), len(b)), matvec = self.tikhonov_cepa_A, rmatvec = self.tikhonov_cepa_A)
+        b2 = self.cepa_A(b)
 
+        x, info = scipy.sparse.linalg.bicg(Aop, -b2, tol = self.tol)
+
+        if self.reference == 'rhf':
+            Ax = at.rhf_to_uhf(self.cepa_A(x), self)
+            b = at.rhf_to_uhf(b, self)
+            x = at.rhf_to_uhf(x, self)
+            energy = self.hf_energy + 2*x.T.dot(b) + x.T.dot(Ax)
+        else:
+            energy = self.hf_energy + 2*x.T.dot(b) + x.T.dot(self.cepa_A(x))
+        return energy
+
+    def tikhonov_shucc(self):
+        b = self.cepa_b()
+        b = at.collapse_tensor(b, self)
+        b = at.concatenate_amps(b, self)
+        Aop = scipy.sparse.linalg.LinearOperator((len(b), len(b)), matvec = self.tikhonov_shucc_A, rmatvec = self.tikhonov_shucc_A)
+        self.lam = 1
+        b2 = self.c3epa_A(b)
+        x, info = scipy.sparse.linalg.bicg(Aop, -b2, tol = self.tol)
+        
+        if self.reference == 'rhf':
+            Ax = at.rhf_to_uhf(self.c3epa_A(x), self)
+            b = at.rhf_to_uhf(b, self)
+            x = at.rhf_to_uhf(x, self)
+            energy = self.hf_energy + 2*x.T.dot(b) + x.T.dot(Ax)
+        else:
+            energy = self.hf_energy + 2*x.T.dot(b) + x.T.dot(self.c3epa_A(x))
+        return energy
 
 
     def cepa(self):
@@ -231,18 +277,39 @@ class molecule:
         if self.run_svd == True:
             #print(scipy.sparse.linalg.eigsh(Aop, k = 3)[0])
             print('Getting SVD of H_N:')
-            print(scipy.sparse.linalg.svds(Aop, k = 3, which = 'SM')[1])
-            print(scipy.sparse.linalg.svds(Aop, k = 3, which = 'LM')[1])
+            H_N = self.build_hessian()
+            eigs = np.linalg.eig(H_N)
+            #eigs = (scipy.sparse.linalg.eigsh(Aop, k = 3, which = 'SM'))
+            #print(scipy.sparse.linalg.eigsh(Aop, k = 3, which = 'LM')[0])
+                
+            new_L = np.zeros(eigs[1].shape)
+            for i in range(0, len(eigs[0])):
+                new_L[i,i] = eigs[0][i]/(eigs[0][i]**2 + self.omega**2)
+
+            Hinv_eff = eigs[1].dot(new_L).dot(eigs[1].T)
+            print('Direct Tikhonov-regularized CEPA SVD Energy:')
+            x = -Hinv_eff.dot(b)
+            if self.reference == 'rhf':
+                Ax2 = at.rhf_to_uhf(H_N.dot(x), self)
+                b2 = at.rhf_to_uhf(b, self)
+                x2 = at.rhf_to_uhf(x, self)
+                energy = self.hf_energy + 2*x2.T.dot(b2) + x2.T.dot(Ax2)
+            else:   
+                energy = self.hf_energy + 2*x.T.dot(b) + x.T.dot(self.cepa_A(x))
+            print(energy)
+
             
         #A = self.build_hessian()
-
+        
         #x, y = np.linalg.eig(A)
         #s, v, d = np.linalg.svd(A)
         #print(sorted(x))
         #print(sorted(v))
-        
+         
         x, info = scipy.sparse.linalg.cg(Aop, -b, tol = self.tol)
-
+        if self.bicg == True:
+            x2, info = scipy.sparse.linalg.bicg(Aop, -b, tol = self.tol)
+            assert(np.linalg.norm(x-x2)<1e-8)
         if self.reference == 'rhf':
             Ax = at.rhf_to_uhf(self.cepa_A(x), self)
             b = at.rhf_to_uhf(b, self)
@@ -299,7 +366,33 @@ class molecule:
         b = at.collapse_tensor(b, self)
         b = at.concatenate_amps(b, self)
         Aop = scipy.sparse.linalg.LinearOperator((len(b), len(b)), matvec = self.c3epa_A, rmatvec = self.c3epa_A)
+        if self.run_svd == True:
+            #print(scipy.sparse.linalg.eigsh(Aop, k = 3)[0])
+            print('Getting SVD of H_N:')
+            H_N = self.build_shucc_hessian()
+            eigs = np.linalg.eig(H_N)
+            #eigs = (scipy.sparse.linalg.eigsh(Aop, k = 3, which = 'SM'))
+            #print(scipy.sparse.linalg.eigsh(Aop, k = 3, which = 'LM')[0])
+                
+            new_L = np.zeros(eigs[1].shape)
+            for i in range(0, len(eigs[0])):
+                new_L[i,i] = eigs[0][i]/(eigs[0][i]**2 + self.omega**2)
+
+            Hinv_eff = eigs[1].dot(new_L).dot(eigs[1].T)
+            print('Direct Tikhonov-regularized SHUCC SVD Energy:')
+            x = -Hinv_eff.dot(b)
+            if self.reference == 'rhf':
+                Ax2 = at.rhf_to_uhf(H_N.dot(x), self)
+                b2 = at.rhf_to_uhf(b, self)
+                x2 = at.rhf_to_uhf(x, self)
+                energy = self.hf_energy + 2*x2.T.dot(b2) + x2.T.dot(Ax2)
+            else:   
+                energy = self.hf_energy + 2*x.T.dot(b) + x.T.dot(self.c3epa_A(x))
+            print(energy)
         x, info = np.array(scipy.sparse.linalg.cg(Aop, -b, tol = self.tol ))
+        if self.bicg == True:
+            x2 = scipy.sparse.linalg.bicg(Aop, -b, tol = self.tol)[0]
+            assert(np.linalg.norm(x-x2)<1e-8)
         if self.reference == 'rhf':
             Ax = at.rhf_to_uhf(self.c3epa_A(x), self)
             b = at.rhf_to_uhf(b, self)
@@ -334,6 +427,28 @@ class molecule:
             energy = self.c3epa_energy(x)
 
         return energy
+
+    def tikhonov_cepa_A(self, x):
+        A_sqr_x =  self.cepa_A(self.cepa_A(x))
+        if self.reference == 'rhf':
+            x = at.rhf_to_uhf(x, self)
+            A_sqr_x = at.rhf_to_uhf(A_sqr_x, self)
+            x = x.reshape((x.shape[0],))
+            A_sqr_x += (self.omega**2)*x
+            return at.uhf_to_rhf(A_sqr_x, self)
+        else:
+            return A_sqr_x + (self.omega**2)*x
+ 
+    def tikhonov_shucc_A(self, x):
+        A_sqr_x = self.c3epa_A(self.c3epa_A(x))
+        if self.reference == 'rhf':
+            x = at.rhf_to_uhf(x, self)
+            A_sqr_x = at.rhf_to_uhf(A_sqr_x, self)
+            x = x.reshape((x.shape[0],))
+            A_sqr_x += x*self.omega**2
+            return at.uhf_to_rhf(A_sqr_x, self)
+        else:
+            return A_sqr_x + x*self.omega**2
 
     def cepa_A(self, x):
         if self.reference == 'rhf':
@@ -902,7 +1017,31 @@ class molecule:
         #print(str(hessian).replace('\n', ''))
         tmp = at.decatenate_amps(hessian[:,0], self)
 
-        print(np.linalg.norm(hessian - hessian.T))
+        #print(np.linalg.norm(hessian - hessian.T))
+
+        return hessian
+
+    def build_shucc_hessian(self):
+        hessian = np.zeros((len(self.b), len(self.b)))
+        if self.reference != 'rhf':
+            for i in range(0, len(self.b)):
+                x = np.zeros(len(self.b))
+                x[i] = 1.0
+                hessian[:,i] = self.c3epa_A(x)
+        else:
+            nsym = self.noa*self.nva+int(.25*self.noa*(self.noa-1)*self.nva*(self.nva-1))
+            for i in range(0, len(self.b)):
+                x = np.zeros(len(self.b))
+                x[i] = 1
+                ax = self.c3epa_A(x)
+                #for j in range(0, len(ax)):
+                #    if j<nsym and i>=nsym:
+                #        ax[j] *= np.sqrt(2)
+                hessian[:,i] = ax
+        #print(str(hessian).replace('\n', ''))
+        tmp = at.decatenate_amps(hessian[:,0], self)
+
+        assert(np.linalg.norm(hessian - hessian.T) < 1e-10)
 
         return hessian
  

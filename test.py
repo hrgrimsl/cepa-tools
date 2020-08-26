@@ -29,10 +29,14 @@ symmetry c1
 
 
 queue = Queue()
-p = Process(target = molecule, args = (geometry, 'cc-pvdz', 'rhf'), kwargs = {'optimize': False, 'cepa1': True, 'psi_acpf': True, 'acpf': False, 'psi_aqcc': True, 'aqcc': False, 'cepa0': False, 'ccsd': True, 'psi_cepa0': True, 'ucc3': True, 'shucc': True, 'scf': True, 'fci': False})
+p = Process(target = molecule, args = (geometry, 'cc-pvdz', 'rhf'), kwargs = {'optimize': False, 'cepa1': True, 'psi_acpf': True, 'acpf': False, 'psi_aqcc': True, 'aqcc': False, 'cepa0': False, 'ccsd': True, 'psi_cepa0': True, 'ucc3': True, 'shucc': True, 'scf': True, 'fci': False, 'tik_cepa': True, 'omega': .1})
 p.start()
 p.join()
-
+queue = Queue()
+p = Process(target = molecule, args = (geometry, 'cc-pvdz', 'uhf'), kwargs = {'optimize': False, 'cepa1': False, 'psi_acpf': False, 'acpf': False, 'psi_aqcc': False, 'aqcc': False, 'cepa0': True, 'ccsd': True, 'psi_cepa0': False, 'ucc3': True, 'shucc': True, 'scf': True, 'fci': False, 'tik_cepa': True, 'omega': .1})
+p.start()
+p.join()
+'''
 queue = Queue()
 p = Process(target = molecule, args = (geometry2, 'cc-pvdz', 'rhf'), kwargs = {'optimize': False, 'cepa1': True, 'psi_acpf': True, 'acpf': False, 'psi_aqcc': True, 'aqcc': False, 'cepa0': False, 'ccsd': True, 'psi_cepa0': True, 'ucc3': True, 'shucc': True, 'scf': True, 'fci': False})
 p.start()
@@ -42,3 +46,4 @@ queue = Queue()
 p = Process(target = molecule, args = (geometry3, 'cc-pvdz', 'rhf'), kwargs = {'optimize': False, 'cepa1': True, 'psi_acpf': True, 'acpf': False, 'psi_aqcc': True, 'aqcc': False, 'cepa0': False, 'ccsd': True, 'psi_cepa0': True, 'ucc3': True, 'shucc': True, 'scf': True, 'fci': False})
 p.start()
 p.join()
+'''
