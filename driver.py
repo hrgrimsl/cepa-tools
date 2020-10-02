@@ -1,11 +1,10 @@
 import numpy as np
 from opt_einsum import contract
 import copy
-
-import algebratools as at
-import copy
 import scipy
 import os
+import algebratools as at
+import time
 
 class molecule:
     def __init__(self, geometry, basis, reference, **kwargs):
@@ -229,17 +228,24 @@ class molecule:
             cepa = self.tikhonov_cepa()
             print("Tikhonov-CEPA(0) energy:".ljust(30)+("{0:20.16f}".format(cepa)))
         if self.tik_shucc == True:
+            self.lam = 1
             cepa = self.tikhonov_shucc()
             print("Tikhonov-SHUCC energy:".ljust(30)+("{0:20.16f}".format(cepa)))
     
+    def count(self, arr):
+        self.count_no += 1        
+ 
     def tikhonov_cepa(self):
+        start = time.time() 
         b = self.cepa_b()
         b = at.collapse_tensor(b, self)
         b = at.concatenate_amps(b, self)
+        self.count_no = 0
         Aop = scipy.sparse.linalg.LinearOperator((len(b), len(b)), matvec = self.tikhonov_cepa_A, rmatvec = self.tikhonov_cepa_A)
+        
         b2 = self.cepa_A(b)
 
-        x, info = scipy.sparse.linalg.bicg(Aop, -b2, tol = self.tol)
+        x, info = scipy.sparse.linalg.cg(Aop, -b2, tol = self.tol, callback = self.count)
 
         if self.reference == 'rhf':
             Ax = at.rhf_to_uhf(self.cepa_A(x), self)
@@ -248,16 +254,23 @@ class molecule:
             energy = self.hf_energy + 2*x.T.dot(b) + x.T.dot(Ax)
         else:
             energy = self.hf_energy + 2*x.T.dot(b) + x.T.dot(self.cepa_A(x))
+        end = time.time()
+        print("Time for tik cepa:")
+        print(end - start)
+        print("Iterations for tik cepa:")
+        print(self.count_no)
         return energy
 
     def tikhonov_shucc(self):
+        start = time.time()
         b = self.cepa_b()
         b = at.collapse_tensor(b, self)
         b = at.concatenate_amps(b, self)
+        self.count_no = 0
         Aop = scipy.sparse.linalg.LinearOperator((len(b), len(b)), matvec = self.tikhonov_shucc_A, rmatvec = self.tikhonov_shucc_A)
         self.lam = 1
         b2 = self.c3epa_A(b)
-        x, info = scipy.sparse.linalg.bicg(Aop, -b2, tol = self.tol)
+        x, info = scipy.sparse.linalg.cg(Aop, -b2, tol = self.tol, callback = self.count)
         
         if self.reference == 'rhf':
             Ax = at.rhf_to_uhf(self.c3epa_A(x), self)
@@ -266,21 +279,28 @@ class molecule:
             energy = self.hf_energy + 2*x.T.dot(b) + x.T.dot(Ax)
         else:
             energy = self.hf_energy + 2*x.T.dot(b) + x.T.dot(self.c3epa_A(x))
+        end = time.time()
+        print("Time for tik shucc")
+        print(end - start)
+        print("Iterations for tik shucc:")
+        print(self.count_no)
         return energy
 
 
     def cepa(self):
+        start = time.time()
         b = self.cepa_b()
         b = at.collapse_tensor(b, self)
         b = at.concatenate_amps(b, self)
         Aop = scipy.sparse.linalg.LinearOperator((len(b), len(b)), matvec = self.cepa_A, rmatvec = self.cepa_A)
         if self.run_svd == True:
+            '''
             #print(scipy.sparse.linalg.eigsh(Aop, k = 3)[0])
             print('Getting SVD of H_N:')
             H_N = self.build_hessian()
             eigs = np.linalg.eig(H_N)
             #eigs = (scipy.sparse.linalg.eigsh(Aop, k = 3, which = 'SM'))
-            #print(scipy.sparse.linalg.eigsh(Aop, k = 3, which = 'LM')[0])
+
                 
             new_L = np.zeros(eigs[1].shape)
             for i in range(0, len(eigs[0])):
@@ -297,6 +317,9 @@ class molecule:
             else:   
                 energy = self.hf_energy + 2*x.T.dot(b) + x.T.dot(self.cepa_A(x))
             print(energy)
+            '''
+            #print(scipy.sparse.linalg.eigsh(Aop, sigma = 0, k = 1, which = 'LM')[0])
+            #print(scipy.sparse.linalg.eigsh(Aop, sigma = 0, k = 1, which = 'SM')[0])
 
             
         #A = self.build_hessian()
@@ -305,9 +328,9 @@ class molecule:
         #s, v, d = np.linalg.svd(A)
         #print(sorted(x))
         #print(sorted(v))
-         
-        x, info = scipy.sparse.linalg.cg(Aop, -b, tol = self.tol)
-        if self.bicg == True:
+        self.count_no = 0
+        x, info = scipy.sparse.linalg.cg(Aop, -b, tol = self.tol, callback = self.count)
+        if self.bicg == True:	
             x2, info = scipy.sparse.linalg.bicg(Aop, -b, tol = self.tol)
             assert(np.linalg.norm(x-x2)<1e-8)
         if self.reference == 'rhf':
@@ -317,6 +340,11 @@ class molecule:
             energy = self.hf_energy + 2*x.T.dot(b) + x.T.dot(Ax)
         else:   
             energy = self.hf_energy + 2*x.T.dot(b) + x.T.dot(self.cepa_A(x)) 
+        end = time.time()
+        print("Time for CEPA:")
+        print(end - start)
+        print("Iterations for CEPA:")
+        print(self.count_no)
         return energy
 
     def shifted_cepa(self):
@@ -362,11 +390,13 @@ class molecule:
         return energy
 
     def c3epa(self, **kwargs):
+        start = time.time()
         b = self.cepa_b()
         b = at.collapse_tensor(b, self)
         b = at.concatenate_amps(b, self)
         Aop = scipy.sparse.linalg.LinearOperator((len(b), len(b)), matvec = self.c3epa_A, rmatvec = self.c3epa_A)
         if self.run_svd == True:
+            '''
             #print(scipy.sparse.linalg.eigsh(Aop, k = 3)[0])
             print('Getting SVD of H_N:')
             H_N = self.build_shucc_hessian()
@@ -389,7 +419,11 @@ class molecule:
             else:   
                 energy = self.hf_energy + 2*x.T.dot(b) + x.T.dot(self.c3epa_A(x))
             print(energy)
-        x, info = np.array(scipy.sparse.linalg.cg(Aop, -b, tol = self.tol ))
+            '''
+            #print(scipy.sparse.linalg.eigsh(Aop, k = 2, sigma = 0, which = 'LM')[0])
+            print(scipy.sparse.linalg.eigsh(Aop, k = 1, sigma = 0, which = 'SM')[0])
+        self.count_no = 0
+        x, info = np.array(scipy.sparse.linalg.cg(Aop, -b, tol = self.tol, callback = self.count))
         if self.bicg == True:
             x2 = scipy.sparse.linalg.bicg(Aop, -b, tol = self.tol)[0]
             assert(np.linalg.norm(x-x2)<1e-8)
@@ -400,6 +434,11 @@ class molecule:
             energy = self.hf_energy + 2*x.T.dot(b) + x.T.dot(Ax)
         else:   
             energy = self.hf_energy + 2*x.T.dot(b) + x.T.dot(self.c3epa_A(x)) 
+        end = time.time()
+        print("Time for c3epa:")
+        print(end-start)
+        print("Iterations for c3epa:")
+        print(self.count_no)
         return energy
     
     def ic3epa(self, **kwargs):
