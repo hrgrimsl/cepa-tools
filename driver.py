@@ -41,6 +41,8 @@ class molecule:
         self.ucc3 = False
         self.bicg = False
         self.tik_shucc = False
+        self.do_nik_cepa = False
+        self.do_nik_shucc = False
         self.tol = 1e-14
         self.log_file = 'out.dat'
         self.mem = '24GB'
@@ -247,29 +249,7 @@ class molecule:
     def count(self, arr):
         self.count_no += 1        
  
-    def tikhonov_cepa(self):
-        start = time.time() 
-        b = self.cepa_b()
-        b = at.collapse_tensor(b, self)
-        b = at.concatenate_amps(b, self)
-        self.count_no = 0
-        Aop = scipy.sparse.linalg.LinearOperator((len(b), len(b)), matvec = self.tikhonov_cepa_A, rmatvec = self.tikhonov_cepa_A)
-        b2 = self.cepa_A(b)
-        x, info = scipy.sparse.linalg.cg(Aop, -b2, tol = self.tol, callback = self.count)
 
-        if self.reference == 'rhf':
-            Ax = at.rhf_to_uhf(self.cepa_A(x), self)
-            b = at.rhf_to_uhf(b, self)
-            x = at.rhf_to_uhf(x, self)
-            energy = self.hf_energy + x.T.dot(b)
-        else:
-            energy = self.hf_energy + x.T.dot(b)
-        end = time.time()
-        print("Time for tik cepa:")
-        print(end - start)
-        print("Iterations for tik cepa:")
-        print(self.count_no)
-        return energy
  
     def nik_cepa(self, omega):
         self.omega = abs(omega)
@@ -281,7 +261,6 @@ class molecule:
         Aop = scipy.sparse.linalg.LinearOperator((len(b), len(b)), matvec = self.nik_cepa_A, rmatvec = self.nik_cepa_A)
         x, info = scipy.sparse.linalg.cg(Aop, -b, tol = self.tol, callback = self.count)
         if self.reference == 'rhf':
-            Ax = at.rhf_to_uhf(self.cepa_A(x), self)
             b = at.rhf_to_uhf(b, self)
             x = at.rhf_to_uhf(x, self)
             energy = self.hf_energy + x.T.dot(b)
@@ -306,7 +285,6 @@ class molecule:
         Aop = scipy.sparse.linalg.LinearOperator((len(b), len(b)), matvec = self.nik_shucc_A, rmatvec = self.nik_shucc_A)
         x, info = scipy.sparse.linalg.cg(Aop, -b, tol = self.tol, callback = self.count)
         if self.reference == 'rhf':
-            Ax = at.rhf_to_uhf(self.c3epa_A(x), self)
             b = at.rhf_to_uhf(b, self)
             x = at.rhf_to_uhf(x, self)
             energy = self.hf_energy + x.T.dot(b)
@@ -320,6 +298,27 @@ class molecule:
         #print(energy)
         return energy
         
+    def tikhonov_cepa(self):
+        start = time.time() 
+        b = self.cepa_b()
+        b = at.collapse_tensor(b, self)
+        b = at.concatenate_amps(b, self)
+        self.count_no = 0
+        Aop = scipy.sparse.linalg.LinearOperator((len(b), len(b)), matvec = self.tikhonov_cepa_A, rmatvec = self.tikhonov_cepa_A)
+        b2 = self.cepa_A(b)
+        x, info = scipy.sparse.linalg.cg(Aop, -b2, callback = self.count)
+        if self.reference == 'rhf':
+            b = at.rhf_to_uhf(b, self)
+            x = at.rhf_to_uhf(x, self)
+            energy = self.hf_energy + x.T.dot(b)
+        else:
+            energy = self.hf_energy + x.T.dot(b)
+        end = time.time()
+        print("Time for tik cepa:")
+        print(end - start)
+        print("Iterations for tik cepa:")
+        print(self.count_no)
+        return energy
 
     def tikhonov_shucc(self):
         start = time.time()
@@ -330,10 +329,8 @@ class molecule:
         Aop = scipy.sparse.linalg.LinearOperator((len(b), len(b)), matvec = self.tikhonov_shucc_A, rmatvec = self.tikhonov_shucc_A)
         self.lam = 1
         b2 = self.c3epa_A(b)
-        x, info = scipy.sparse.linalg.cg(Aop, -b2, tol = self.tol, callback = self.count)
-        
+        x, info = scipy.sparse.linalg.cg(Aop, -b2, callback = self.count)
         if self.reference == 'rhf':
-            Ax = at.rhf_to_uhf(self.c3epa_A(x), self)
             b = at.rhf_to_uhf(b, self)
             x = at.rhf_to_uhf(x, self)
             energy = self.hf_energy + x.T.dot(b)
