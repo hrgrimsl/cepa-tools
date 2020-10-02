@@ -41,10 +41,13 @@ queue = Queue()
 
 
 
-p = Process(target = molecule, args = (h2o, 'cc-pvtz', 'rhf'), kwargs = {'log_file': 'new_data.log', 'optimize': False, 'mem': '60GB', 'scf': True, 'ucc3': False, 'ccsd': True, 'psi_acpf': False, 'psi_aqcc': False, 'shucc': False, 'psi_cepa0': False, 'lccd': False, 'ccsdpt': False, 'cepa1': False, 'mp2': False, 'sys_name': 'trans_ch3ono', 'ocepa': False, 'run_svd': False, 'tik_shucc': True, 'tik_cepa': True, 'omega': .1})
+p = Process(target = molecule, args = (h2o, 'cc-pvdz', 'rhf'), kwargs = {'log_file': 'new_data.log', 'optimize': False, 'mem': '60GB', 'scf': True, 'ucc3': False, 'ccsd': True, 'psi_acpf': False, 'psi_aqcc': False, 'shucc': True, 'cepa0': True, 'lccd': False, 'ccsdpt': False, 'cepa1': False, 'mp2': False, 'sys_name': 'h2o', 'ocepa': False, 'run_svd': False, 'do_nik_shucc': True, 'do_nik_cepa': True, 'omega': 1e-3})
 p.start()
 p.join()
-
+p = Process(target = molecule, args = (h2o, 'cc-pvdz', 'uhf'), kwargs = {'log_file': 'new_data.log', 'optimize': False, 'mem': '60GB', 'scf': True, 'ucc3': False, 'ccsd': True, 'psi_acpf': False, 'psi_aqcc': False, 'shucc': True, 'cepa0': True, 'lccd': False, 'ccsdpt': False, 'cepa1': False, 'mp2': False, 'sys_name': 'h2o', 'ocepa': False, 'run_svd': False, 'do_nik_shucc': True, 'do_nik_cepa': True, 'omega': 1e-3})
+p.start()
+p.join()
+'''
 p = Process(target = molecule, args = (trans_ch3ono, 'cc-pvtz', 'rhf'), kwargs = {'log_file': 'new_data.log', 'optimize': False, 'mem': '60GB', 'scf': True, 'ucc3': False, 'ccsd': True, 'psi_acpf': False, 'psi_aqcc': False, 'shucc': False, 'psi_cepa0': False, 'lccd': False, 'ccsdpt': False, 'cepa1': False, 'mp2': False, 'sys_name': 'trans_ch3ono', 'ocepa': False, 'run_svd': False, 'tik_shucc': True, 'tik_cepa': True, 'omega': .1})
 p.start()
 p.join()
@@ -52,4 +55,4 @@ p.join()
 p = Process(target = molecule, args = (cis_ch3ono, 'cc-pvtz', 'rhf'), kwargs = {'log_file': 'new_data.log', 'optimize': False, 'mem': '60GB', 'scf': True, 'ucc3': False, 'ccsd': True, 'psi_acpf': False, 'psi_aqcc': False, 'shucc': False, 'psi_cepa0': False, 'lccd': False, 'ccsdpt': False, 'cepa1': False, 'mp2': False, 'sys_name': 'trans_ch3ono', 'ocepa': False, 'run_svd': False, 'tik_shucc': True, 'tik_cepa': True, 'omega': .1})
 p.start()
 p.join()
-
+'''

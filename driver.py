@@ -231,6 +231,18 @@ class molecule:
             self.lam = 1
             cepa = self.tikhonov_shucc()
             print("Tikhonov-SHUCC energy:".ljust(30)+("{0:20.16f}".format(cepa)))
+        if self.do_nik_cepa == True:
+            print('Nick CEPA Omega/Energy:')
+            for omega in [0, 1e-10, 1e-9, 1e-8, 1e-7, 1e-6, 1e-5, 1e-4, 1e-3, 1e-2, 1e-1, 1]:
+                 print(str(omega)+'   '+str(self.nik_cepa(omega)))
+            #cepa = self.nik_cepa()
+            #print("Nick's CEPA(0) energy:".ljust(30)+("{0:20.16f}".format(cepa)))
+        if self.do_nik_shucc == True:
+            self.lam = 1
+            print('Nick Shucc')
+            for omega in [0, 1e-10, 1e-9, 1e-8, 1e-7, 1e-6, 1e-5, 1e-4, 1e-3, 1e-2, 1e-1, 1]:
+                 print(str(omega)+'   '+str(self.nik_shucc(omega)))
+            #print("Nick's SHUCC energy:".ljust(30)+("{0:20.16f}".format(cepa)))
     
     def count(self, arr):
         self.count_no += 1        
@@ -242,24 +254,72 @@ class molecule:
         b = at.concatenate_amps(b, self)
         self.count_no = 0
         Aop = scipy.sparse.linalg.LinearOperator((len(b), len(b)), matvec = self.tikhonov_cepa_A, rmatvec = self.tikhonov_cepa_A)
-        
         b2 = self.cepa_A(b)
-
         x, info = scipy.sparse.linalg.cg(Aop, -b2, tol = self.tol, callback = self.count)
 
         if self.reference == 'rhf':
             Ax = at.rhf_to_uhf(self.cepa_A(x), self)
             b = at.rhf_to_uhf(b, self)
             x = at.rhf_to_uhf(x, self)
-            energy = self.hf_energy + 2*x.T.dot(b) + x.T.dot(Ax)
+            energy = self.hf_energy + x.T.dot(b)
         else:
-            energy = self.hf_energy + 2*x.T.dot(b) + x.T.dot(self.cepa_A(x))
+            energy = self.hf_energy + x.T.dot(b)
         end = time.time()
         print("Time for tik cepa:")
         print(end - start)
         print("Iterations for tik cepa:")
         print(self.count_no)
         return energy
+ 
+    def nik_cepa(self, omega):
+        self.omega = abs(omega)
+        start = time.time() 
+        b = self.cepa_b()
+        b = at.collapse_tensor(b, self)
+        b = at.concatenate_amps(b, self)
+        self.count_no = 0
+        Aop = scipy.sparse.linalg.LinearOperator((len(b), len(b)), matvec = self.nik_cepa_A, rmatvec = self.nik_cepa_A)
+        x, info = scipy.sparse.linalg.cg(Aop, -b, tol = self.tol, callback = self.count)
+        if self.reference == 'rhf':
+            Ax = at.rhf_to_uhf(self.cepa_A(x), self)
+            b = at.rhf_to_uhf(b, self)
+            x = at.rhf_to_uhf(x, self)
+            energy = self.hf_energy + x.T.dot(b)
+        else:
+            energy = self.hf_energy + x.T.dot(b)
+        end = time.time()
+        #print("Time for Nik cepa:")
+        #print(end - start)
+        #print("Iterations for Nik cepa:")
+        #print(self.count_no)
+        #print(energy)
+        return energy
+
+    def nik_shucc(self, omega):
+        self.omega = abs(omega)
+        start = time.time()
+        b = self.cepa_b()
+        b = at.collapse_tensor(b, self)
+        b = at.concatenate_amps(b, self)
+        self.count_no = 0
+        self.lam = 1
+        Aop = scipy.sparse.linalg.LinearOperator((len(b), len(b)), matvec = self.nik_shucc_A, rmatvec = self.nik_shucc_A)
+        x, info = scipy.sparse.linalg.cg(Aop, -b, tol = self.tol, callback = self.count)
+        if self.reference == 'rhf':
+            Ax = at.rhf_to_uhf(self.c3epa_A(x), self)
+            b = at.rhf_to_uhf(b, self)
+            x = at.rhf_to_uhf(x, self)
+            energy = self.hf_energy + x.T.dot(b)
+        else:
+            energy = self.hf_energy + x.T.dot(b)
+        end = time.time()
+        #print("Time for tik shucc")
+        #print(end - start)
+        #print("Iterations for tik shucc:")
+        #print(self.count_no)
+        #print(energy)
+        return energy
+        
 
     def tikhonov_shucc(self):
         start = time.time()
@@ -276,9 +336,9 @@ class molecule:
             Ax = at.rhf_to_uhf(self.c3epa_A(x), self)
             b = at.rhf_to_uhf(b, self)
             x = at.rhf_to_uhf(x, self)
-            energy = self.hf_energy + 2*x.T.dot(b) + x.T.dot(Ax)
+            energy = self.hf_energy + x.T.dot(b)
         else:
-            energy = self.hf_energy + 2*x.T.dot(b) + x.T.dot(self.c3epa_A(x))
+            energy = self.hf_energy + x.T.dot(b)
         end = time.time()
         print("Time for tik shucc")
         print(end - start)
@@ -488,6 +548,28 @@ class molecule:
             return at.uhf_to_rhf(A_sqr_x, self)
         else:
             return A_sqr_x + x*self.omega**2
+
+    def nik_cepa_A(self, x):
+        Ax =  self.cepa_A(x)
+        if self.reference == 'rhf':
+            x = at.rhf_to_uhf(x, self)
+            Ax = at.rhf_to_uhf(Ax, self)
+            x = x.reshape((x.shape[0],))
+            Ax += self.omega*x
+            return at.uhf_to_rhf(Ax, self)
+        else:
+            return Ax + self.omega*x
+ 
+    def nik_shucc_A(self, x):
+        Ax = self.c3epa_A(x)
+        if self.reference == 'rhf':
+            x = at.rhf_to_uhf(x, self)
+            Ax = at.rhf_to_uhf(Ax, self)
+            x = x.reshape((x.shape[0],))
+            Ax += self.omega*x
+            return at.uhf_to_rhf(Ax, self)
+        else:
+            return Ax + self.omega*x
 
     def cepa_A(self, x):
         if self.reference == 'rhf':
