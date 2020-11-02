@@ -26,25 +26,37 @@ symmetry c1
 
 h2o = """
 0 1
-   O       -3.91287        2.15171       -0.01523
-   H       -2.94498        2.18175        0.02018
-   H       -4.19172        2.75204        0.69245
+ H               -0.000000000019623    -0.757079142167364    -0.527055743199211
+    O                0.000000000002474     0.000000000000005     0.066418606654254
+    H               -0.000000000019643     0.757079142167289    -0.527055743199306
 symmetry c1
 """
 
+cl = """
+0 2
+Cl 0 0 0
+symmetry c1
+"""
 
 from driver import *
 from multiprocessing import Process, Queue
 
 queue = Queue()
-
-
-
-
-p = Process(target = molecule, args = (h2o, 'cc-pvdz', 'rhf'), kwargs = {'log_file': 'new_data.log', 'optimize': False, 'mem': '60GB', 'scf': True, 'ucc3': False, 'ccsd': True, 'psi_acpf': False, 'psi_aqcc': False, 'shucc': True, 'cepa0': True, 'lccd': False, 'ccsdpt': False, 'cepa1': False, 'mp2': False, 'sys_name': 'h2o', 'ocepa': False, 'run_svd': False, 'tik_shucc': True, 'tik_cepa': True, 'omega': 0})
+'''
+p = Process(target = molecule, args = (h2, '3-21G', 'rhf'), kwargs = {'log_file': 'H2_data.log', 'optimize': False, 'mem': '16GB', 'combo':'poly_rhf_debug'})
+p.start()
+p.join()
+'''
+p = Process(target = molecule, args = (h2o, '3-21G', 'rhf'), kwargs = {'log_file': 'h2o.log', 'optimize': False, 'mem': '16GB', 'sys_name': 'H2O', 'combo': 'general', 'tik_omega': .1, 'nik_omega': .1})
 p.start()
 p.join()
 
+
+'''
+p = Process(target = molecule, args = (cis_ch3ono, 'cc-pvdz', 'uhf'), kwargs = {'log_file': 'cis_ch3ono.log', 'optimize': False, 'mem': '16GB', 'combo':'poly_uhf_debug', 'sys_name': 'cis-CH3ONO'})
+p.start()
+p.join()
+'''
 '''
 p = Process(target = molecule, args = (trans_ch3ono, 'cc-pvtz', 'rhf'), kwargs = {'log_file': 'new_data.log', 'optimize': False, 'mem': '60GB', 'scf': True, 'ucc3': False, 'ccsd': True, 'psi_acpf': False, 'psi_aqcc': False, 'shucc': False, 'psi_cepa0': False, 'lccd': False, 'ccsdpt': False, 'cepa1': False, 'mp2': False, 'sys_name': 'trans_ch3ono', 'ocepa': False, 'run_svd': False, 'tik_shucc': True, 'tik_cepa': True, 'omega': .1})
 p.start()
